@@ -13,10 +13,10 @@ except (ImportError, ValueError):
         from pgi.repository import Gtk, WebKit2, GLib
     except (ImportError, ValueError):
         gi = None
-        try:
-            import webview
-        except ImportError:
-            webview = None
+try:
+    import webview
+except ImportError:
+    webview = None
 if gi is None and webview is None:
     raise ImportError("Either gi (PyGObject), pgi module, or pywebview is required.")
 
@@ -352,6 +352,7 @@ def parse_args(args = None):
                    help='Allow use of insecure renegotiation or ancient 3DES and RC4 ciphers')
     p.add_argument('--user-agent', '--useragent', default='PAN GlobalProtect',
                    help='Use the provided string as the HTTP User-Agent header (default is %(default)r, as used by OpenConnect)')
+    p.add_argument('-w','--pywebview', action='store_true', help='Use pywebview instead of WebKit2-GTK')
     p.add_argument('openconnect_extra', nargs='*', help="Extra arguments to include in output OpenConnect command-line")
     args = p.parse_args(args)
 
@@ -447,7 +448,7 @@ def main(args = None):
     # spawn WebKit view to do SAML interactive login, with pywebview as a fallback
     if args.verbose:
         print("Got SAML %s, opening browser..." % sam, file=stderr)
-    if not gi is None:
+    if not gi is None and not args.pywebview:
         slv = SAMLLoginView(uri, html, verbose=args.verbose, cookies=args.cookies, verify=args.verify, user_agent=args.user_agent)
         Gtk.main()
     else:
