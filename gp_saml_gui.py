@@ -374,12 +374,22 @@ def parse_args(args = None):
 
     return p, args
 
+class SSLContextAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
+        # Customize SSL context
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        kwargs['ssl_context'] = ctx
+        return super(SSLContextAdapter, self).init_poolmanager(*args, **kwargs)
+
 def main(args = None):
     p, args = parse_args(args)
 
     s = requests.Session()
-    if args.insecure:
-        s.mount('https://', TLSAdapter())
+    s.mount('https://', SSLContextAdapter())
     s.headers['User-Agent'] = 'PAN GlobalProtect' if args.user_agent is None else args.user_agent
     s.cert = args.cert
 
@@ -395,7 +405,7 @@ def main(args = None):
         if args.verbose:
             print("Looking for SAML auth tags in response to %s..." % endpoint, file=stderr)
         try:
-            res = s.post(endpoint, verify=args.verify, data=data)
+            res = s.post(endpoint, verify=False, data=data)
         except Exception as ex:
             rootex = ex
             while True:
