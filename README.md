@@ -31,6 +31,7 @@ Table of Contents
     * [Second, gp-saml-gui itself](#second-gp-saml-gui-itself)
   * [How to use](#how-to-use)
     * [Extra arguments to OpenConnect](#extra-arguments-to-openconnect)
+  * [macOS: Privileged Helper (no sudo prompts)](#macos-privileged-helper-no-sudo-prompts)
   * [License](#license)
 
 Introduction
@@ -136,9 +137,9 @@ win
 $ echo "$COOKIE" | openconnect --protocol=gp -u "$USER" --os="$OS" --passwd-on-stdin "$HOST"
 ```
 
-If you specify either the `-P`/`--pkexec-openconnect` or `-S`/`--sudo-openconnect` options, the script
-will automatically invoke OpenConnect as described, using either [`pkexec` from Polkit](https://www.freedesktop.org/software/polkit/docs/0.106/polkit.8.html)
-or [`sudo`](https://www.sudo.ws/), as specified.
+If you specify either the `-P`/`--pkexec-openconnect`, `-S`/`--sudo-openconnect`, or `-D`/`--daemon-openconnect` options, the script
+will automatically invoke OpenConnect as described, using either [`pkexec` from Polkit](https://www.freedesktop.org/software/polkit/docs/0.106/polkit.8.html),
+[`sudo`](https://www.sudo.ws/), or the [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) (macOS only), as specified.
 
 # Extra Arguments to OpenConnect
 
@@ -153,6 +154,75 @@ Launching OpenConnect with pkexec, equivalent to:
         sudo openconnect --protocol=gp --user=foo12345@corp.company.com --os=win --usergroup=gateway:prelogin-cookie --passwd-on-stdin vpn.company.com
 <pkexec authentication dialog pops up>
 <openconnect runs>
+```
+
+macOS: Privileged Helper (no sudo prompts)
+==========================================
+
+> **This is the recommended approach for macOS users.**
+
+On macOS, OpenConnect requires root to create a `utun` network interface. The
+`-P` (pkexec) option is Linux-only, and `-S` (sudo) prompts for a password every
+time. This repo includes a small **privileged helper daemon** that runs as root
+in the background via `launchd`, so subsequent VPN connections need no password
+at all.
+
+### How it works
+
+The helper listens on a Unix socket (`/var/run/openconnect-helper.sock`).
+When you use the `-D` flag, the script connects to that socket, sends the
+OpenConnect arguments and SAML cookie, and the daemon spawns OpenConnect as root
+and streams its output back. Pressing Ctrl+C closes the socket, which
+terminates OpenConnect cleanly.
+
+### Requirements
+
+- macOS (Apple Silicon or Intel)
+- OpenConnect installed via Homebrew: `brew install openconnect`
+- Python 3 (already required by gp-saml-gui)
+
+### Install the helper (once, requires sudo)
+
+```sh
+sudo helper/install.sh
+```
+
+This copies the helper to `/Library/PrivilegedHelperTools/openconnect-helper`
+and registers it as a `launchd` system daemon. It starts immediately and
+restarts automatically on every boot — no further sudo needed.
+
+To check it is running:
+
+```sh
+tail /var/log/openconnect-helper.log
+```
+
+### Connect to the VPN
+
+Use the `-D` / `--daemon-openconnect` flag instead of `-S` or `-P`:
+
+```sh
+gp-saml-gui --pywebview -D --gateway vpn.company.com
+```
+
+With `vpn-slice` for split tunnelling (only route specific subnets over the VPN):
+
+```sh
+gp-saml-gui --pywebview -D --gateway vpn.company.com -- -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'
+```
+
+As a shell alias in `~/.zshrc` or `~/.bash_profile`:
+
+```sh
+alias start-vpn="source /path/to/gp-saml-gui/venv/bin/activate && \
+  gp-saml-gui --pywebview -D --gateway vpn.company.com -- \
+  -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'"
+```
+
+### Uninstall the helper
+
+```sh
+sudo helper/uninstall.sh
 ```
 
 License
