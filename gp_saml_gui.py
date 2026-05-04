@@ -345,6 +345,7 @@ def parse_args(args = None):
     x.add_argument('-x','--external', action='store_true', help='Launch external browser (for debugging)')
     x.add_argument('-P','--pkexec-openconnect', action='store_const', dest='exec', const='pkexec', help='Use PolicyKit to exec openconnect')
     x.add_argument('-S','--sudo-openconnect', action='store_const', dest='exec', const='sudo', help='Use sudo to exec openconnect')
+    x.add_argument('-D','--daemon-openconnect', action='store_const', dest='exec', const='daemon', help='Use privileged helper daemon to exec openconnect (no sudo needed after helper/install.sh)')
     g.add_argument('-u','--uri', action='store_true', help='Treat server as the complete URI of the SAML entry point, rather than GlobalProtect server')
     g.add_argument('--clientos', choices=set(pf2clientos.values()), default=default_clientos, help="clientos value to send (default is %(default)s)")
     p.add_argument('-f','--field', dest='extra', action='append', default=[],
@@ -522,7 +523,31 @@ def main(args = None):
         print('''    test-globalprotect-login.py --user={} --clientos={} -p '' \\\n         https://{}/{} {}={}\n'''.format(
             quote(un), quote(args.clientos), quote(server), quote(if2auth[args.interface]), quote(cn), quote(cv)), file=stderr)
 
-    if args.exec:
+    if args.exec == 'daemon':
+        import json as _json
+        import socket as _socket
+        _HELPER_SOCKET = "/var/run/openconnect-helper.sock"
+        print('Connecting to openconnect helper daemon, equivalent to:\n{}'.format(openconnect_command), file=stderr)
+        try:
+            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            sock.connect(_HELPER_SOCKET)
+        except (FileNotFoundError, ConnectionRefusedError):
+            print('ERROR: openconnect helper daemon not running.\n'
+                  'Install it once with: sudo helper/install.sh', file=stderr)
+            raise SystemExit(1)
+        sock.sendall((_json.dumps({'args': openconnect_args, 'cookie': cv}) + '\n').encode())
+        try:
+            while True:
+                data = sock.recv(4096)
+                if not data:
+                    break
+                stderr.buffer.write(data)
+                stderr.flush()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            sock.close()
+    elif args.exec:
         print('''Launching OpenConnect with {}, equivalent to:\n{}'''.format(args.exec, openconnect_command), file=stderr)
         with tempfile.TemporaryFile('w+') as tf:
             tf.write(cv)
