@@ -68,6 +68,18 @@ class SAMLLoginViewWebview:
             debug=verbose,
             private_mode=False)
 
+        # pywebview 5.x on macOS can return from webview.start() before the
+        # WindowServer has committed the window's close, leaving a ghost window
+        # on screen once the main thread blocks elsewhere (e.g. the daemon log
+        # loop). Pump the main run loop briefly so the pending teardown flushes.
+        if platform == 'darwin':
+            try:
+                from Foundation import NSRunLoop, NSDate
+                NSRunLoop.currentRunLoop().runUntilDate_(
+                    NSDate.dateWithTimeIntervalSinceNow_(0.2))
+            except Exception:
+                pass
+
     def create_login_window(self, window, uri, html):
         window.events.closed += self.on_closed
         window.events.loaded += self.get_saml_headers
@@ -526,6 +538,12 @@ def main(args = None):
     if args.exec == 'daemon':
         import json as _json
         import socket as _socket
+        import signal as _signal
+        # pywebview's Cocoa backend installs a Mach-port SIGINT handler via
+        # AppHelper.installMachInterrupt() and does not restore it after app.run()
+        # returns, which swallows Ctrl+C in the recv loop below. Re-arm Python's
+        # default handler so Ctrl+C raises KeyboardInterrupt again.
+        _signal.signal(_signal.SIGINT, _signal.default_int_handler)
         _HELPER_SOCKET = "/var/run/openconnect-helper.sock"
         print('Connecting to openconnect helper daemon, equivalent to:\n{}'.format(openconnect_command), file=stderr)
         try:
