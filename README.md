@@ -9,7 +9,8 @@ Table of Contents
     * [Screenshots](#screenshots)
     * [Features](#features)
     * [GPConnect requirements](#gpconnect-requirements)
-    * [Build](#build)
+    * [Download a release](#download-a-release)
+    * [Build from source](#build-from-source)
     * [Install GPConnect](#install-gpconnect)
     * [Usage](#usage)
     * [Configuration](#configuration)
@@ -81,10 +82,24 @@ GPConnect requirements
 - [OpenConnect](https://www.infradead.org/openconnect/) installed via Homebrew: `brew install openconnect`
 - The [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) from this repo, installed once
   with `sudo helper/install.sh`
-- Xcode Command Line Tools (`xcode-select --install`) — a full Xcode install is **not** required to build
+- Xcode Command Line Tools (`xcode-select --install`) — only needed if building from source; not required
+  if you download a release
 
-Build
------
+Download a release
+-------------------
+
+The easiest way to get GPConnect is to grab the latest prebuilt release instead of building it yourself:
+
+1. Download `GPConnect-*-macos.zip` and `gpconnect-*-macos` from the
+   [Releases page](https://github.com/sodre90/gpconnect-macos/releases/latest).
+2. Unzip `GPConnect-*-macos.zip` — this gives you `GPConnect.app`.
+3. Continue with [Install GPConnect](#install-gpconnect) below.
+
+Releases are ad-hoc signed (not notarized), so Gatekeeper will block the first launch — see the note about
+`xattr -cr` in that section.
+
+Build from source
+------------------
 
 ```sh
 cd GPConnect
@@ -102,10 +117,14 @@ Install GPConnect
 -----------------
 
 ```sh
-cp -R .build/app/GPConnect.app /Applications/
-cp .build/release/gpconnect /usr/local/bin/
+cp -R .build/app/GPConnect.app /Applications/    # or wherever you unzipped the downloaded release
+cp .build/release/gpconnect /usr/local/bin/      # or wherever you downloaded the CLI binary
+chmod +x /usr/local/bin/gpconnect                # if downloaded, it won't have the executable bit set
 open /Applications/GPConnect.app
 ```
+
+Since GPConnect is ad-hoc signed rather than notarized, Gatekeeper will block that first launch. Run
+`xattr -cr /Applications/GPConnect.app` (or right-click the app → Open) to get past it.
 
 If `/Applications/GPConnect.app` already exists and was installed with `sudo`, remove it first
 (`sudo rm -rf /Applications/GPConnect.app`) before copying a plain (non-sudo) rebuild over it, or the copy
