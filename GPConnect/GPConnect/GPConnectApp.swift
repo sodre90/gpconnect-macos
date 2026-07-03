@@ -5,10 +5,14 @@ import AppKit
 struct GPConnectApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    // WindowManager opens SettingsView as a plain NSWindow (see MenuBarView's
+    // "Settings..." button) — the SwiftUI Settings scene's showSettingsWindow:
+    // action isn't reliably wired up in this NSApplicationDelegateAdaptor app,
+    // same class of issue as the SAML/IP-ranges windows (see GPConnect/CLAUDE.md).
+    // This empty scene only exists to satisfy `App`'s Scene requirement.
     var body: some Scene {
         Settings {
-            SettingsView()
-                .environmentObject(appDelegate.vpnManager)
+            EmptyView()
         }
     }
 }

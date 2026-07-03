@@ -110,8 +110,7 @@ struct MenuBarView: View {
             Spacer()
 
             Button("Settings...") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                NSApp.activate(ignoringOtherApps: true)
+                WindowManager.shared.openSettings(vpnManager: vpnManager)
             }
             .buttonStyle(.borderless)
             .font(.caption)

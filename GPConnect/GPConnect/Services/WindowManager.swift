@@ -7,6 +7,7 @@ class WindowManager: ObservableObject {
 
     private var samlWindow: NSWindow?
     private var rangesWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
     func openSAMLAuth(vpnManager: VPNManager) {
         if let existing = samlWindow, existing.isVisible {
@@ -61,5 +62,30 @@ class WindowManager: ObservableObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.rangesWindow = window
+    }
+
+    func openSettings(vpnManager: VPNManager) {
+        if let existing = settingsWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = SettingsView()
+            .environmentObject(vpnManager)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 550),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Settings"
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        self.settingsWindow = window
     }
 }

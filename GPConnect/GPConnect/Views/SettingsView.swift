@@ -50,9 +50,16 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            HStack {
+                Spacer()
+                Button("Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 350)
+        .padding(.horizontal, 12)
+        .frame(minWidth: 650, idealWidth: 650, minHeight: 550, idealHeight: 550)
         .onAppear {
             gateway = vpnManager.config.gateway
             userAgent = vpnManager.config.userAgent
