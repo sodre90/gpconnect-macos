@@ -5,10 +5,9 @@ Privileged Helper Daemon
 > [GPConnect](../GPConnect/) instead, you don't need any of this — the app offers to install the helper for
 > you automatically on first launch.
 
-On macOS, OpenConnect requires root to create a `utun` network interface. The `-P` (pkexec) option is
-Linux-only, and `-S` (sudo) prompts for a password every time. This directory contains a small **privileged
-helper daemon** that runs as root in the background via `launchd`, so subsequent VPN connections need no
-password at all.
+OpenConnect requires root to create a `utun` network interface. The `-S` (sudo) option prompts for a
+password every time. This directory contains a small **privileged helper daemon** that runs as root in the
+background via `launchd`, so subsequent VPN connections need no password at all.
 
 Table of Contents
 =================
@@ -56,23 +55,23 @@ tail /var/log/openconnect-helper.log
 Connect to the VPN
 ===================
 
-Use the `-D` / `--daemon-openconnect` flag instead of `-S` or `-P`:
+Use the `-D` / `--daemon-openconnect` flag instead of `-S`:
 
 ```sh
-gp-saml-gui --pywebview -D --gateway vpn.company.com
+gp-saml-gui -D --gateway vpn.company.com
 ```
 
 With `vpn-slice` for split tunnelling (only route specific subnets over the VPN):
 
 ```sh
-gp-saml-gui --pywebview -D --gateway vpn.company.com -- -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'
+gp-saml-gui -D --gateway vpn.company.com -- -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'
 ```
 
 As a shell alias in `~/.zshrc` or `~/.bash_profile`:
 
 ```sh
 alias start-vpn="source /path/to/gp-saml-gui/venv/bin/activate && \
-  gp-saml-gui --pywebview -D --gateway vpn.company.com -- \
+  gp-saml-gui -D --gateway vpn.company.com -- \
   -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'"
 ```
 

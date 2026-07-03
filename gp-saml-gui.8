@@ -4,9 +4,6 @@ gp-saml-gui \- login to a GlobalProtect VPN that uses SAML authentication
 .SH SYNOPSIS
 .SY gp-saml-gui
 .OP -h
-.OP --no-verify
-.OP -C COOKIES
-.OP -K
 .OP -p
 .OP -g
 .OP -c CERT]
@@ -14,11 +11,13 @@ gp-saml-gui \- login to a GlobalProtect VPN that uses SAML authentication
 .OP -v
 .OP -q
 .OP -x
-.OP -P
 .OP -S
+.OP -D
 .OP -u
 .OP --clientos {Windows,Linux,Mac}
 .OP -f EXTRA
+.OP --allow-insecure-crypto
+.OP --user-agent USER_AGENT
 .B server
 .OP --
 .OP openconnect_extra ...
@@ -52,15 +51,6 @@ so that they are not parsed as gp-saml-gui's own options).
 .B --h, --help
 Show help message and exit
 .IP
-.B --no-verify
-Ignore invalid server certificate
-.IP
-.B -C, --cookies
-Use and store cookies in this file
-.IP
-.B -K, --no-cookies
-Don't use or store cookies at all
-.IP
 .B -g, --gateway
 SAML auth to gateway
 .IP
@@ -76,15 +66,24 @@ Reduce verbosity to a minimum
 .B -x, --external
 Launch external browser (for debugging)
 .IP
-.B -P, --pkexec-openconnect
-Use PolicyKit (\fBpkexec\fR) to exec openconnect
-.IP
 .B -S, --sudo-openconnect
 Use sudo to exec openconnect
+.IP
+.B -D, --daemon-openconnect
+Use privileged helper daemon to exec openconnect (no sudo needed after
+.B helper/install.sh
+has been run once)
 .IP
 .B -f, --field
 Extra form field(s) to pass to include in the login query string
 (e.g. "-f magic-cookie-value=deadbeef01234567")
+.IP
+.B --allow-insecure-crypto
+Allow use of insecure renegotiation or ancient 3DES and RC4 ciphers
+.IP
+.B --user-agent, --useragent
+Use the provided string as the HTTP User-Agent header (default is
+"PAN GlobalProtect", as used by OpenConnect)
 .TP
 .I Client certificate
 .IP

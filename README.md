@@ -16,8 +16,6 @@ Table of Contents
     * [Configuration](#configuration)
     * [Known limitations](#known-limitations)
   * [Installation](#installation)
-    * [First, non-Python Dependencies](#first-non-python-dependencies)
-    * [Second, gp-saml-gui itself](#second-gp-saml-gui-itself)
   * [How to use](#how-to-use)
     * [Extra arguments to OpenConnect](#extra-arguments-to-openconnect)
   * [macOS: Privileged Helper (no sudo prompts)](#macos-privileged-helper-no-sudo-prompts)
@@ -33,7 +31,7 @@ SAML logins can't be scripted the way username/password logins can, so this repo
 then connects with [OpenConnect](https://www.infradead.org/openconnect). (The GlobalProtect protocol is
 supported in OpenConnect v8.0 or newer; v8.06+ is recommended.) It provides three pieces that work together:
 
-- **`gp-saml-gui`** — a cross-platform Python script that drives the SAML login in a webview and hands the
+- **`gp-saml-gui`** — a Python script (macOS/Windows) that drives the SAML login in a webview and hands the
   resulting session to `openconnect`
 - **GPConnect** — a native macOS menu bar app and **`gpconnect`** CLI wrapping the same flow, with
   connect/disconnect status and an editable list of split-tunnel IP ranges (see below)
@@ -181,50 +179,17 @@ Known limitations
 Installation
 ============
 
-First, non-Python Dependencies
-------------------------------
-
-gp-saml-gui uses GTK, which requires Python 3 bindings.
-
-On Debian / Ubuntu, these are packaged as `python3-gi`, `gir1.2-gtk-3.0`, and
-`gir1.2-webkit2-4.0`:
-
-```
-$ sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.0
-```
-
-On Fedora (and possibly RHEL/CentOS) the matching libraries are packaged in
-`python3-gobject`, `gtk3-devel`, and `webkit2gtk3-devel`:
-
-```
-$ sudo dnf install python3-gobject gtk3-devel webkit2gtk3-devel
-```
-
-On Arch Linux, the libraries are packaged in `gtk3`, `gobject-introspection`
-and `webkit2gtk`:
-
-```
-$ sudo pacman -S gtk3 gobject-introspection webkit2gtk
-```
-
-On macOS, GTK/WebKit2 isn't available at all — `gp_saml_gui.py` falls back automatically to
-[pywebview](https://pywebview.flowrl.com/) instead, which is what the `--pywebview`/`-w` flag used in
-examples below selects. Install it with `pip3 install pywebview` (or via `requirements.txt`, see below).
-
-Second, gp-saml-gui itself
---------------------------
-
-Install gp-saml-gui itself using `pip`, optionally inside a virtualenv:
+Install gp-saml-gui using `pip`, optionally inside a virtualenv (this pulls in
+[pywebview](https://pywebview.flowrl.com/), which drives the login window on both macOS and Windows):
 
 ```
 $ python3 -m venv venv && source venv/bin/activate
 $ pip3 install https://github.com/sodre90/gpconnect-macos/archive/master.zip
 ...
 $ gp-saml-gui
-usage: gp-saml-gui [-h] [--no-verify] [-C COOKIES | -K] [-g | -p] [-c CERT]
-                    [--key KEY] [-v | -q] [-x | -P | -S | -D] [-u]
-                    [--clientos {Mac,Linux,Windows}] [-f EXTRA]
-                    [--allow-insecure-crypto] [--user-agent USER_AGENT] [-w]
+usage: gp-saml-gui [-h] [-g | -p] [-c CERT] [--key KEY] [-v | -q] [-x | -S | -D]
+                    [-u] [--clientos {Linux,Mac,Windows}] [-f EXTRA]
+                    [--allow-insecure-crypto] [--user-agent USER_AGENT]
                     server [openconnect_extra ...]
 gp-saml-gui: error: the following arguments are required: server, openconnect_extra
 ```
@@ -237,8 +202,7 @@ arguments, such as `--clientos=Windows` (because many GlobalProtect
 servers don't require SAML login, but apparently omit it in their configuration
 for OSes other than Windows).
 
-This script will pop up a [GTK WebKit2 WebView](https://webkitgtk.org/) window
-alongside your terminal window.
+This script will pop up a webview window alongside your terminal window.
 After you successfully complete the SAML login via web forms, the script will output
 `HOST`, `USER`, `COOKIE`, and `OS` variables in a form that can be used by
 [OpenConnect](http://www.infradead.org/openconnect/juniper.html)
@@ -267,9 +231,9 @@ win
 $ echo "$COOKIE" | openconnect --protocol=gp -u "$USER" --os="$OS" --passwd-on-stdin "$HOST"
 ```
 
-If you specify either the `-P`/`--pkexec-openconnect`, `-S`/`--sudo-openconnect`, or `-D`/`--daemon-openconnect` options, the script
-will automatically invoke OpenConnect as described, using either [`pkexec` from Polkit](https://www.freedesktop.org/software/polkit/docs/0.106/polkit.8.html),
-[`sudo`](https://www.sudo.ws/), or the [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) (macOS only), as specified.
+If you specify either the `-S`/`--sudo-openconnect` or `-D`/`--daemon-openconnect` options, the script will
+automatically invoke OpenConnect as described, using either [`sudo`](https://www.sudo.ws/) or the
+[privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) (recommended), as specified.
 
 Extra arguments to OpenConnect
 -------------------------------
@@ -278,23 +242,23 @@ Extra arguments needed for OpenConnect can be specified by adding ` -- ` to the 
 appending these. For example:
 
 ```sh
-$ gp-saml-gui -P --gateway --clientos=Windows vpn.company.com -- --csd-wrapper=hip-report.sh
+$ gp-saml-gui -S --gateway --clientos=Windows vpn.company.com -- --csd-wrapper=hip-report.sh
 …
-Launching OpenConnect with pkexec, equivalent to:
+Launching OpenConnect with sudo, equivalent to:
     echo blahblahblahlongrandomcookievalue |
         sudo openconnect --protocol=gp --user=foo12345@corp.company.com --os=win --usergroup=gateway:prelogin-cookie --passwd-on-stdin vpn.company.com
-<pkexec authentication dialog pops up>
+<sudo password prompt>
 <openconnect runs>
 ```
 
 macOS: Privileged Helper (no sudo prompts)
 ==========================================
 
-> **This is the recommended approach for macOS users of the Python script.** This repo includes a small
-> **privileged helper daemon** that runs `openconnect` as root via `launchd`, so subsequent VPN connections
-> need no password at all — instead of `-P`/pkexec (Linux-only) or `-S`/sudo (prompts every time). GPConnect
-> installs this for you automatically; if you're using the `gp-saml-gui` script directly, see
-> [helper/README.md](helper/README.md) for how to install it and use it with the `-D` flag.
+> **This is the recommended approach.** This repo includes a small **privileged helper daemon** that runs
+> `openconnect` as root via `launchd`, so subsequent VPN connections need no password at all — instead of
+> `-S`/sudo (prompts every time). GPConnect installs this for you automatically; if you're using the
+> `gp-saml-gui` script directly, see [helper/README.md](helper/README.md) for how to install it and use it
+> with the `-D` flag.
 
 License
 =======

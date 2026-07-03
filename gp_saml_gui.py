@@ -1,24 +1,6 @@
 #!/usr/bin/env python3
 
-try:
-    import gi
-    gi.require_version('Gtk', '3.0')
-    gi.require_version('WebKit2', '4.0')
-    from gi.repository import Gtk, WebKit2, GLib
-except (ImportError, ValueError):
-    try:
-        import pgi as gi
-        gi.require_version('Gtk', '3.0')
-        gi.require_version('WebKit2', '4.0')
-        from pgi.repository import Gtk, WebKit2, GLib
-    except (ImportError, ValueError):
-        gi = None
-try:
-    import webview
-except ImportError:
-    webview = None
-if gi is None and webview is None:
-    raise ImportError("Either gi (PyGObject), pgi module, or pywebview is required.")
+import webview
 
 import argparse
 import threading
@@ -30,29 +12,15 @@ import xml.etree.ElementTree as ET
 import ssl
 import tempfile
 
-from operator import setitem
 from os import path, dup2, execvp
 from shlex import quote
 from sys import stderr, platform
 from binascii import a2b_base64, b2a_base64
 from urllib.parse import urlparse, urlencode
-from html.parser import HTMLParser
 from uuid import uuid1
 
 
-class CommentHtmlParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.comments = []
-
-    def handle_comment(self, data: str) -> None:
-        self.comments.append(data)
-
-
-COOKIE_FIELDS = ('prelogin-cookie', 'portal-userauthcookie')
-
-
-class SAMLLoginViewWebview:
+class SAMLLoginView:
     def __init__(self, uri=None, html=None, verbose=False, user_agent=None):
         self.closed = False
         self.success = False
@@ -150,154 +118,6 @@ class SAMLLoginViewWebview:
             self.window.destroy()
         self.lock.release()
 
-class SAMLLoginView:
-    def __init__(self, uri, html=None, verbose=False, cookies=None, verify=True, user_agent=None):
-        Gtk.init(None)
-        window = Gtk.Window()
-
-        # API reference: https://lazka.github.io/pgi-docs/#WebKit2-4.0
-
-        self.closed = False
-        self.success = False
-        self.saml_result = {}
-        self.verbose = verbose
-
-        self.ctx = WebKit2.WebContext.get_default()
-        if not verify:
-            self.ctx.set_tls_errors_policy(WebKit2.TLSErrorsPolicy.IGNORE)
-        self.cookies = self.ctx.get_cookie_manager()
-        if cookies:
-            self.cookies.set_accept_policy(WebKit2.CookieAcceptPolicy.ALWAYS)
-            self.cookies.set_persistent_storage(cookies, WebKit2.CookiePersistentStorage.TEXT)
-        self.wview = WebKit2.WebView()
-
-        if user_agent is None:
-            user_agent = 'PAN GlobalProtect'
-        settings = self.wview.get_settings()
-        settings.set_user_agent(user_agent)
-        self.wview.set_settings(settings)
-
-        window.resize(500, 500)
-        window.add(self.wview)
-        window.show_all()
-        window.set_title("SAML Login")
-        window.connect('delete-event', self.close)
-        self.wview.connect('load-changed', self.on_load_changed)
-        self.wview.connect('resource-load-started', self.log_resources)
-
-        if html:
-            self.wview.load_html(html, uri)
-        else:
-            self.wview.load_uri(uri)
-
-    def close(self, window, event):
-        self.closed = True
-        Gtk.main_quit()
-
-    def log_resources(self, webview, resource, request):
-        if self.verbose > 1:
-            print('[REQUEST] %s for resource %s' % (request.get_http_method() or 'Request', resource.get_uri()), file=stderr)
-        if self.verbose > 2:
-            resource.connect('finished', self.log_resource_details, request)
-
-    def log_resource_details(self, resource, request):
-        m = request.get_http_method() or 'Request'
-        uri = resource.get_uri()
-        rs = resource.get_response()
-        h = rs.get_http_headers() if rs else None
-        if h:
-            ct, cl = h.get_content_type(), h.get_content_length()
-            content_type, charset = ct[0], ct.params.get('charset')
-            content_details = '%d bytes of %s%s for ' % (cl, content_type, ('; charset='+charset) if charset else '')
-        print('[RECEIVE] %sresource %s %s' % (content_details if h else '', m, uri), file=stderr)
-
-    def log_resource_text(self, resource, result, content_type, charset=None, show_headers=None):
-        data = resource.get_data_finish(result)
-        content_details = '%d bytes of %s%s for ' % (len(data), content_type, ('; charset='+charset) if charset else '')
-        print('[DATA   ] %sresource %s' % (content_details, resource.get_uri()), file=stderr)
-        if show_headers:
-            for h,v in show_headers.items():
-                print('%s: %s' % (h, v), file=stderr)
-            print(file=stderr)
-        if charset or content_type.startswith('text/'):
-            print(data.decode(charset or 'utf-8'), file=stderr)
-
-    def on_load_changed(self, webview, event):
-        if event != WebKit2.LoadEvent.FINISHED:
-            return
-
-        mr = webview.get_main_resource()
-        uri = mr.get_uri()
-        rs = mr.get_response()
-        h = rs.get_http_headers() if rs else None
-        ct = h.get_content_type()
-
-        if self.verbose:
-            print('[PAGE   ] Finished loading page %s' % uri, file=stderr)
-
-        # convert to normal dict
-        d = {}
-        h.foreach(lambda k, v: setitem(d, k.lower(), v))
-        # filter to interesting headers
-        fd = {name: v for name, v in d.items() if name.startswith('saml-') or name in COOKIE_FIELDS}
-
-        if fd:
-            if self.verbose:
-                print("[SAML   ] Got SAML result headers: %r" % fd, file=stderr)
-                if self.verbose > 1:
-                    # display everything we found
-                    mr.get_data(None, self.log_resource_text, ct[0], ct.params.get('charset'), d)
-            self.saml_result.update(fd, server=urlparse(uri).netloc)
-            self.check_done()
-
-        if not self.success:
-            if self.verbose > 1:
-                print("[SAML   ] No headers in response, searching body for xml comments", file=stderr)
-            # asynchronous call to fetch body content, continue processing in callback:
-            mr.get_data(None, self.response_callback, ct)
-
-    def response_callback(self, resource, result, ct):
-        data = resource.get_data_finish(result)
-        content = data.decode(ct.params.get("charset") or "utf-8")
-
-        html_parser = CommentHtmlParser()
-        html_parser.feed(content)
-
-        fd = {}
-        for comment in html_parser.comments:
-            if self.verbose > 1:
-                print("[SAML   ] Found comment in response body: '%s'" % comment, file=stderr)
-            try:
-                # xml parser requires valid xml with a single root tag, but our expected content
-                # is just a list of data tags, so we need to improvise
-                xmlroot = ET.fromstring("<fakexmlroot>%s</fakexmlroot>" % comment)
-                # search for any valid first level xml tags (inside our fake root) that could contain SAML data
-                for elem in xmlroot:
-                    if elem.tag.startswith("saml-") or elem.tag in COOKIE_FIELDS:
-                        fd[elem.tag] = elem.text
-            except ET.ParseError:
-                pass  # silently ignore any comments that don't contain valid xml
-
-        if self.verbose > 1:
-            print("[SAML   ] Finished parsing response body for %s" % resource.get_uri(), file=stderr)
-        if fd:
-            if self.verbose:
-                print("[SAML   ] Got SAML result tags: %s" % fd, file=stderr)
-            self.saml_result.update(fd, server=urlparse(resource.get_uri()).netloc)
-
-        if not self.check_done():
-            # Work around timing/race condition by retrying check_done after 1 second
-            GLib.timeout_add(1000, self.check_done)
-
-    def check_done(self):
-        d = self.saml_result
-        if 'saml-username' in d and ('prelogin-cookie' in d or 'portal-userauthcookie' in d):
-            if self.verbose:
-                print("[SAML   ] Got all required SAML headers, done.", file=stderr)
-            self.success = True
-            Gtk.main_quit()
-            return True
-
 
 class TLSAdapter(requests.adapters.HTTPAdapter):
     '''Adapt to older TLS stacks that would raise errors otherwise.
@@ -335,12 +155,6 @@ def parse_args(args = None):
 
     p = argparse.ArgumentParser()
     p.add_argument('server', help='GlobalProtect server (portal or gateway)')
-    p.add_argument('--no-verify', dest='verify', action='store_false', default=True, help='Ignore invalid server certificate')
-    x = p.add_mutually_exclusive_group()
-    x.add_argument('-C', '--cookies', default='~/.gp-saml-gui-cookies',
-                   help='Use and store cookies in this file (instead of default %(default)s)')
-    x.add_argument('-K', '--no-cookies', dest='cookies', action='store_const', const=None,
-                   help="Don't use or store cookies at all")
     x = p.add_mutually_exclusive_group()
     x.add_argument('-g','--gateway', dest='interface', action='store_const', const='gateway', default='portal',
                    help='SAML auth to gateway')
@@ -355,7 +169,6 @@ def parse_args(args = None):
     x.add_argument('-q','--quiet', dest='verbose', action='store_const', const=0, help='Reduce verbosity to a minimum')
     x = p.add_mutually_exclusive_group()
     x.add_argument('-x','--external', action='store_true', help='Launch external browser (for debugging)')
-    x.add_argument('-P','--pkexec-openconnect', action='store_const', dest='exec', const='pkexec', help='Use PolicyKit to exec openconnect')
     x.add_argument('-S','--sudo-openconnect', action='store_const', dest='exec', const='sudo', help='Use sudo to exec openconnect')
     x.add_argument('-D','--daemon-openconnect', action='store_const', dest='exec', const='daemon', help='Use privileged helper daemon to exec openconnect (no sudo needed after helper/install.sh)')
     g.add_argument('-u','--uri', action='store_true', help='Treat server as the complete URI of the SAML entry point, rather than GlobalProtect server')
@@ -366,15 +179,11 @@ def parse_args(args = None):
                    help='Allow use of insecure renegotiation or ancient 3DES and RC4 ciphers')
     p.add_argument('--user-agent', '--useragent', default='PAN GlobalProtect',
                    help='Use the provided string as the HTTP User-Agent header (default is %(default)r, as used by OpenConnect)')
-    p.add_argument('-w','--pywebview', action='store_true', help='Use pywebview instead of WebKit2-GTK')
     p.add_argument('openconnect_extra', nargs='*', help="Extra arguments to include in output OpenConnect command-line")
     args = p.parse_args(args)
 
     args.ocos = clientos2ocos[args.clientos]
     args.extra = dict(x.split('=', 1) for x in args.extra)
-
-    if args.cookies:
-        args.cookies = path.expanduser(args.cookies)
 
     if args.cert and args.key:
         args.cert, args.key = (args.cert, args.key), None
@@ -428,7 +237,7 @@ def main(args = None):
                     break
                 rootex = rootex.__cause__ or rootex.__context__
             if isinstance(rootex, ssl.CertificateError):
-                p.error("SSL certificate error (try --no-verify to ignore): %s" % rootex)
+                p.error("SSL certificate error: %s" % rootex)
             elif isinstance(rootex, ssl.SSLError):
                 p.error("SSL error (try --allow-insecure-crypto to ignore): %s" % rootex)
             else:
@@ -469,14 +278,10 @@ def main(args = None):
         webbrowser.open(uri)
         raise SystemExit
 
-    # spawn WebKit view to do SAML interactive login, with pywebview as a fallback
+    # spawn webview to do SAML interactive login
     if args.verbose:
         print("Got SAML %s, opening browser..." % sam, file=stderr)
-    if not gi is None and not args.pywebview:
-        slv = SAMLLoginView(uri, html, verbose=args.verbose, cookies=args.cookies, verify=args.verify, user_agent=args.user_agent)
-        Gtk.main()
-    else:
-        slv = SAMLLoginViewWebview(uri, html, verbose=args.verbose, user_agent=args.user_agent)
+    slv = SAMLLoginView(uri, html, verbose=args.verbose, user_agent=args.user_agent)
     if slv.closed:
         print("Login window closed by user.", file=stderr)
         p.exit(1)
@@ -574,10 +379,7 @@ def main(args = None):
             # redirect stdin from this file, before it is closed by the context manager
             # (it will remain accessible via the open file descriptor)
             dup2(tf.fileno(), 0)
-        if args.exec == 'pkexec':
-            cmd = ["pkexec", "--user", "root", "openconnect"] + openconnect_args
-        elif args.exec == 'sudo':
-            cmd = ["sudo", "openconnect"] + openconnect_args
+        cmd = ["sudo", "openconnect"] + openconnect_args
         execvp(cmd[0], cmd)
 
     else:
