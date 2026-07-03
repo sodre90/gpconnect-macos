@@ -1,0 +1,24 @@
+name: GPConnect
+options:
+  bundleIdPrefix: com.perdos
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "16.0"
+
+targets:
+  GPConnect:
+    type: application
+    platform: macOS
+    sources:
+      - GPConnect
+    settings:
+      base:
+        INFOPLIST_FILE: GPConnect/Info.plist
+        CODE_SIGN_ENTITLEMENTS: GPConnect/GPConnect.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.perdos.gpconnect
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        PRODUCT_NAME: GPConnect
+        COMBINE_HIDPI_IMAGES: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"

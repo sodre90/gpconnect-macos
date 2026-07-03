@@ -1,0 +1,11 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Swift / Xcode build artifacts
+GPConnect/.build/
+GPConnect/GPConnect.xcodeproj/
+DerivedData/
+*.xcuserstate
+xcuserdata/

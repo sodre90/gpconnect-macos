@@ -26,6 +26,7 @@ Table of Contents
 =================
 
   * [Introduction](#introduction)
+  * [GPConnect: native macOS menu bar app](#gpconnect-native-macos-menu-bar-app)
   * [Installation](#installation)
     * [First, non-Python Dependencies](#first-non-python-dependencies)
     * [Second, gp-saml-gui itself](#second-gp-saml-gui-itself)
@@ -53,6 +54,17 @@ This script is known to work with many GlobalProtect VPNs using the major single
 
 Please search and file [issues](https://github.com/dlenski/gp-saml-gui/issues) if you can report success
 or failure with other SSO SAML providers.
+
+GPConnect: native macOS menu bar app
+=====================================
+
+> **macOS users:** in addition to the Python script below, this repo includes
+> [**GPConnect**](GPConnect/), a native Swift menu bar (status bar) app plus a companion CLI. It gives you a
+> GlobalProtect-style icon in the menu bar with connect/disconnect, live status, and an editable list of
+> split-tunnel IP ranges — all backed by the same privileged helper daemon described below, so connecting
+> never prompts for `sudo`.
+>
+> See [GPConnect/README.md](GPConnect/README.md) for build/install instructions and usage.
 
 Installation
 ============
