@@ -6,6 +6,14 @@ Table of Contents
 
   * [Introduction](#introduction)
   * [GPConnect: native macOS menu bar app](#gpconnect-native-macos-menu-bar-app)
+    * [Screenshots](#screenshots)
+    * [Features](#features)
+    * [GPConnect requirements](#gpconnect-requirements)
+    * [Build](#build)
+    * [Install GPConnect](#install-gpconnect)
+    * [Usage](#usage)
+    * [Configuration](#configuration)
+    * [Known limitations](#known-limitations)
   * [Installation](#installation)
     * [First, non-Python Dependencies](#first-non-python-dependencies)
     * [Second, gp-saml-gui itself](#second-gp-saml-gui-itself)
@@ -17,33 +25,137 @@ Table of Contents
 Introduction
 ============
 
-This is a helper script to allow you to interactively login to a GlobalProtect VPN
-that uses [SAML](https://en.wikipedia.org/wiki/Security_Assertion_Markup_Language)
-authentication, so that you can subsequently connect with [OpenConnect](https://www.infradead.org/openconnect).
-(The GlobalProtect protocol is supported in OpenConnect v8.0 or newer; v8.06+ is recommended.)
+The main goal of this repo is to make **split tunneling** easy on GlobalProtect VPNs that require
+[SAML](https://en.wikipedia.org/wiki/Security_Assertion_Markup_Language) single-sign-on (SSO) — routing only
+specific subnets over the VPN via OpenConnect's `vpn-slice`, instead of sending all your traffic through it.
+SAML logins can't be scripted the way username/password logins can, so this repo handles that step for you,
+then connects with [OpenConnect](https://www.infradead.org/openconnect). (The GlobalProtect protocol is
+supported in OpenConnect v8.0 or newer; v8.06+ is recommended.) It provides three pieces that work together:
 
-Interactive login is, unfortunately, sometimes a necessary alternative to automated
-login via scripts such as
-[zdave/openconnect-gp-okta](https://github.com/zdave/openconnect-gp-okta).
+- **`gp-saml-gui`** — a cross-platform Python script that drives the SAML login in a webview and hands the
+  resulting session to `openconnect`
+- **GPConnect** — a native macOS menu bar app and **`gpconnect`** CLI wrapping the same flow, with
+  connect/disconnect status and an editable list of split-tunnel IP ranges (see below)
+- **A privileged helper daemon** (macOS) so either of the above can start `openconnect` as root without
+  repeated `sudo` prompts
 
-This script is known to work with many GlobalProtect VPNs using the major single-sign-on (SSO) providers:
+This is known to work with many GlobalProtect VPNs using the major single-sign-on (SSO) providers:
 
 - Okta (sign-in URLs typically `https://<company>.okta.com/login/*`)
 - Microsoft (sign-in URLs typically `https://login.microsoftonline.com/*`)
 
-Please search and file [issues](https://github.com/dlenski/gp-saml-gui/issues) if you can report success
+Please search and file [issues](https://github.com/sodre90/gpconnect-macos/issues) if you can report success
 or failure with other SSO SAML providers.
 
 GPConnect: native macOS menu bar app
 =====================================
 
-> **macOS users:** in addition to the Python script below, this repo includes
-> [**GPConnect**](GPConnect/), a native Swift menu bar (status bar) app plus a companion CLI. It gives you a
-> GlobalProtect-style icon in the menu bar with connect/disconnect, live status, and an editable list of
-> split-tunnel IP ranges — all backed by the same privileged helper daemon described below, so connecting
-> never prompts for `sudo`.
->
-> See [GPConnect/README.md](GPConnect/README.md) for build/install instructions and usage.
+**macOS users:** in addition to the Python script below, this repo includes **GPConnect** ([`GPConnect/`](GPConnect/)),
+a native Swift menu bar (status bar) app plus a companion CLI, in the spirit of the original GlobalProtect
+client's menu bar icon. It gives you a GlobalProtect-style icon in the menu bar with connect/disconnect,
+live status, and an editable list of split-tunnel IP ranges — all backed by the same privileged helper
+daemon described below, so connecting never prompts for `sudo`.
+
+Screenshots
+-----------
+
+| Menu bar dropdown | IP Ranges editor | Settings |
+| --- | --- | --- |
+| ![Menu bar dropdown](GPConnect/screenshots/menu-bar-dropdown.png) | ![IP Ranges editor](GPConnect/screenshots/ip-ranges-editor.png) | ![Settings](GPConnect/screenshots/settings.png) |
+
+Features
+--------
+
+- Menu bar icon showing connection state (disconnected / connecting / connected / error), with an animated
+  icon while a connection is in progress
+- Connect/disconnect from the menu bar dropdown
+- Built-in SAML login window (`WKWebView`) — no separate browser needed
+- Editable list of split-tunnel IP ranges (add/remove/enable/disable/import), stored in a JSON config file
+  shared with the CLI
+- A `gpconnect` CLI for scripting: status, listing/editing IP ranges, reading config
+
+GPConnect requirements
+----------------------
+
+- macOS 14.0 or newer
+- [OpenConnect](https://www.infradead.org/openconnect/) installed via Homebrew: `brew install openconnect`
+- The [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) from this repo, installed once
+  with `sudo helper/install.sh`
+- Xcode Command Line Tools (`xcode-select --install`) — a full Xcode install is **not** required to build
+
+Build
+-----
+
+```sh
+cd GPConnect
+./build.sh
+```
+
+This builds both the app (`.build/app/GPConnect.app`) and the CLI (`.build/release/gpconnect`). It uses
+`swiftc`/`swift build` directly rather than `xcodebuild`, so it works with just the Command Line Tools —
+see [GPConnect/CLAUDE.md](GPConnect/CLAUDE.md) for why.
+
+`GPConnect.xcodeproj` is included (generated via `xcodegen generate` from `project.yml`) purely so editors
+get proper Swift diagnostics and autocomplete; it isn't used to produce the shipped build.
+
+Install GPConnect
+-----------------
+
+```sh
+cp -R .build/app/GPConnect.app /Applications/
+cp .build/release/gpconnect /usr/local/bin/
+open /Applications/GPConnect.app
+```
+
+If `/Applications/GPConnect.app` already exists and was installed with `sudo`, remove it first
+(`sudo rm -rf /Applications/GPConnect.app`) before copying a plain (non-sudo) rebuild over it, or the copy
+will fail with a permissions error on the app bundle's extended attributes.
+
+Usage
+-----
+
+### Menu bar app
+
+Click the shield icon to open the dropdown: **Connect** starts the SAML login flow in its own window; once
+you finish authenticating, GPConnect starts `openconnect` via the privileged helper daemon and the icon
+turns into a checkmark shield once the tunnel is up. **Disconnect** tears it down. **Edit Ranges...** opens
+a window to manage the split-tunnel IP ranges. **Settings...** lets you change the gateway address and
+User-Agent string.
+
+### CLI
+
+```sh
+gpconnect status                                     # connection + helper daemon status
+gpconnect ranges                                      # list all IP ranges
+gpconnect ranges add --cidr 10.5.0.0/16 --label "New"
+gpconnect ranges remove --cidr 10.5.0.0/16
+gpconnect ranges enable --cidr 10.5.0.0/16
+gpconnect ranges disable --cidr 10.5.0.0/16
+gpconnect vpn-slice-args                              # print enabled ranges as a vpn-slice argument string
+gpconnect config                                      # show gateway / user-agent
+gpconnect config set --gateway vpn.company.com
+```
+
+Configuration
+-------------
+
+Both the app and the CLI read/write the same file:
+
+```
+~/Library/Application Support/GPConnect/config.json
+```
+
+It's plain JSON (gateway address, User-Agent, and a list of `{cidr, label, enabled}` IP ranges) — safe to
+edit by hand, via the app's "Edit Ranges..." window, or via `gpconnect ranges`/`gpconnect config set`.
+
+Known limitations
+-----------------
+
+- **FIDO2/WebAuthn (Touch ID) 2FA does not work** in the in-app SAML login window. It requires the
+  `com.apple.developer.web-browser` entitlement, which in turn requires signing with a real Apple Developer
+  identity — the ad-hoc signing this project currently uses can't carry that entitlement. Password/TOTP-based
+  2FA is unaffected. See [GPConnect/CLAUDE.md](GPConnect/CLAUDE.md) for details if you have a Developer ID
+  and want to fix this.
 
 Installation
 ============
@@ -74,19 +186,25 @@ and `webkit2gtk`:
 $ sudo pacman -S gtk3 gobject-introspection webkit2gtk
 ```
 
+On macOS, GTK/WebKit2 isn't available at all — `gp_saml_gui.py` falls back automatically to
+[pywebview](https://pywebview.flowrl.com/) instead, which is what the `--pywebview`/`-w` flag used in
+examples below selects. Install it with `pip3 install pywebview` (or via `requirements.txt`, see below).
+
 Second, gp-saml-gui itself
 --------------------------
 
-Install gp-saml-gui itself using `pip`:
+Install gp-saml-gui itself using `pip`, optionally inside a virtualenv:
 
 ```
-$ pip3 install https://github.com/dlenski/gp-saml-gui/archive/master.zip
+$ python3 -m venv venv && source venv/bin/activate
+$ pip3 install https://github.com/sodre90/gpconnect-macos/archive/master.zip
 ...
 $ gp-saml-gui
-usage: gp-saml-gui [-h] [--no-verify] [-C COOKIES | -K] [-p | -g] [-c CERT]
-                   [--key KEY] [-v | -q] [-x | -P | -S] [-u]
-                   [--clientos {Windows,Linux,Mac}] [-f EXTRA]
-                   server [openconnect_extra [openconnect_extra ...]]
+usage: gp-saml-gui [-h] [--no-verify] [-C COOKIES | -K] [-g | -p] [-c CERT]
+                    [--key KEY] [-v | -q] [-x | -P | -S | -D] [-u]
+                    [--clientos {Mac,Linux,Windows}] [-f EXTRA]
+                    [--allow-insecure-crypto] [--user-agent USER_AGENT] [-w]
+                    server [openconnect_extra ...]
 gp-saml-gui: error: the following arguments are required: server, openconnect_extra
 ```
 
@@ -99,7 +217,7 @@ servers don't require SAML login, but apparently omit it in their configuration
 for OSes other than Windows).
 
 This script will pop up a [GTK WebKit2 WebView](https://webkitgtk.org/) window
-alongside your terminal window (see this [screenshot](screenshot.png)).
+alongside your terminal window.
 After you successfully complete the SAML login via web forms, the script will output
 `HOST`, `USER`, `COOKIE`, and `OS` variables in a form that can be used by
 [OpenConnect](http://www.infradead.org/openconnect/juniper.html)
@@ -132,7 +250,8 @@ If you specify either the `-P`/`--pkexec-openconnect`, `-S`/`--sudo-openconnect`
 will automatically invoke OpenConnect as described, using either [`pkexec` from Polkit](https://www.freedesktop.org/software/polkit/docs/0.106/polkit.8.html),
 [`sudo`](https://www.sudo.ws/), or the [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) (macOS only), as specified.
 
-# Extra Arguments to OpenConnect
+Extra arguments to OpenConnect
+-------------------------------
 
 Extra arguments needed for OpenConnect can be specified by adding ` -- ` to the command line, and then
 appending these. For example:
@@ -158,7 +277,7 @@ time. This repo includes a small **privileged helper daemon** that runs as root
 in the background via `launchd`, so subsequent VPN connections need no password
 at all.
 
-### How it works
+## How it works
 
 The helper listens on a Unix socket (`/var/run/openconnect-helper.sock`).
 When you use the `-D` flag, the script connects to that socket, sends the
@@ -166,13 +285,13 @@ OpenConnect arguments and SAML cookie, and the daemon spawns OpenConnect as root
 and streams its output back. Pressing Ctrl+C closes the socket, which
 terminates OpenConnect cleanly.
 
-### Requirements
+## Requirements
 
 - macOS (Apple Silicon or Intel)
 - OpenConnect installed via Homebrew: `brew install openconnect`
 - Python 3 (already required by gp-saml-gui)
 
-### Install the helper (once, requires sudo)
+## Install the helper (once, requires sudo)
 
 ```sh
 sudo helper/install.sh
@@ -188,7 +307,7 @@ To check it is running:
 tail /var/log/openconnect-helper.log
 ```
 
-### Connect to the VPN
+## Connect to the VPN
 
 Use the `-D` / `--daemon-openconnect` flag instead of `-S` or `-P`:
 
@@ -210,7 +329,7 @@ alias start-vpn="source /path/to/gp-saml-gui/venv/bin/activate && \
   -s 'vpn-slice 10.0.0.0/8 192.168.0.0/16'"
 ```
 
-### Uninstall the helper
+## Uninstall the helper
 
 ```sh
 sudo helper/uninstall.sh

@@ -3,6 +3,9 @@ venv/
 __pycache__/
 *.pyc
 
+# macOS
+.DS_Store
+
 # Swift / Xcode build artifacts
 GPConnect/.build/
 GPConnect/GPConnect.xcodeproj/
