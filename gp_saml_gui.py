@@ -5,7 +5,6 @@ import webview
 import argparse
 import threading
 import time
-import urllib3
 import re
 import requests
 import xml.etree.ElementTree as ET
@@ -119,35 +118,6 @@ class SAMLLoginView:
         self.lock.release()
 
 
-class TLSAdapter(requests.adapters.HTTPAdapter):
-    '''Adapt to older TLS stacks that would raise errors otherwise.
-
-    We try to work around different issues:
-    * Enable weak ciphers such as 3DES or RC4, that have been disabled by default
-      in OpenSSL 3.0 or recent Linux distributions.
-    * Enable weak Diffie-Hellman key exchange sizes.
-    * Enable unsafe legacy renegotiation for servers without RFC 5746 support.
-
-    See Also
-    --------
-    https://github.com/psf/requests/issues/4775#issuecomment-478198879
-
-    Notes
-    -----
-    Python is missing an ssl.OP_LEGACY_SERVER_CONNECT constant.
-    We have extracted the relevant value from <openssl/ssl.h>.
-
-    '''
-    def init_poolmanager(self, connections, maxsize, block=False):
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.set_ciphers('DEFAULT:@SECLEVEL=1')
-        ssl_context.options |= 1<<2  # OP_LEGACY_SERVER_CONNECT
-        self.poolmanager = urllib3.PoolManager(
-                num_pools=connections,
-                maxsize=maxsize,
-                block=block,
-                ssl_context=ssl_context)
-
 def parse_args(args = None):
     pf2clientos = dict(linux='Linux', darwin='Mac', win32='Windows', cygwin='Windows')
     clientos2ocos = dict(Linux='linux-64', Mac='mac-intel', Windows='win')
@@ -197,21 +167,33 @@ def parse_args(args = None):
     return p, args
 
 class SSLContextAdapter(requests.adapters.HTTPAdapter):
+    '''Adapt to older TLS stacks (e.g. GlobalProtect gateways) that would raise errors otherwise.
+
+    Always disables certificate verification and enables unsafe legacy renegotiation for servers
+    without RFC 5746 support. If insecure=True (--allow-insecure-crypto), also enables weak ciphers
+    such as 3DES or RC4 and weak Diffie-Hellman key exchange sizes, which OpenSSL 3.0+ disables by
+    default (see https://github.com/psf/requests/issues/4775#issuecomment-478198879).
+    '''
+    def __init__(self, *args, insecure=False, **kwargs):
+        self.insecure = insecure
+        super().__init__(*args, **kwargs)
+
     def init_poolmanager(self, *args, **kwargs):
         ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
-        # Customize SSL context
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
+        if self.insecure:
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
 
         kwargs['ssl_context'] = ctx
-        return super(SSLContextAdapter, self).init_poolmanager(*args, **kwargs)
+        return super().init_poolmanager(*args, **kwargs)
 
 def main(args = None):
     p, args = parse_args(args)
 
     s = requests.Session()
-    s.mount('https://', SSLContextAdapter())
+    s.mount('https://', SSLContextAdapter(insecure=args.insecure))
     s.headers['User-Agent'] = 'PAN GlobalProtect' if args.user_agent is None else args.user_agent
     s.cert = args.cert
 
