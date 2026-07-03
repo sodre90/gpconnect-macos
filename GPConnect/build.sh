@@ -45,6 +45,11 @@ cp GPConnect/Info.plist "$CONTENTS/Info.plist"
 # Copy default config to Resources
 cp GPConnect/Resources/default-config.json "$RESOURCES/default-config.json"
 
+# Bundle the privileged helper daemon so the app can offer to install it
+mkdir -p "$RESOURCES/helper"
+cp ../helper/install.sh ../helper/uninstall.sh ../helper/openconnect_helper ../helper/com.openconnect.helper.plist "$RESOURCES/helper/"
+chmod +x "$RESOURCES/helper/install.sh" "$RESOURCES/helper/uninstall.sh" "$RESOURCES/helper/openconnect_helper"
+
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS/PkgInfo"
 

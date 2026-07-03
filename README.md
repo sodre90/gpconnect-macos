@@ -80,8 +80,9 @@ GPConnect requirements
 
 - macOS 14.0 or newer
 - [OpenConnect](https://www.infradead.org/openconnect/) installed via Homebrew: `brew install openconnect`
-- The [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) from this repo, installed once
-  with `sudo helper/install.sh`
+- The [privileged helper daemon](#macos-privileged-helper-no-sudo-prompts) — GPConnect will offer to install
+  this itself (one admin password prompt) the first time you launch it if it isn't already running, so you
+  don't need to run `sudo helper/install.sh` manually
 - Xcode Command Line Tools (`xcode-select --install`) — only needed if building from source; not required
   if you download a release
 
@@ -139,7 +140,8 @@ Click the shield icon to open the dropdown: **Connect** starts the SAML login fl
 you finish authenticating, GPConnect starts `openconnect` via the privileged helper daemon and the icon
 turns into a checkmark shield once the tunnel is up. **Disconnect** tears it down. **Edit Ranges...** opens
 a window to manage the split-tunnel IP ranges. **Settings...** lets you change the gateway address and
-User-Agent string.
+User-Agent string, and also has an **Install Helper** button if the privileged helper daemon isn't running
+(you'll usually be prompted for this automatically on first launch instead).
 
 ### CLI
 

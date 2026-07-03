@@ -5,6 +5,9 @@ struct SettingsView: View {
     @State private var gateway: String = ""
     @State private var userAgent: String = ""
     @State private var launchAtLogin = false
+    @State private var helperRunning = HelperInstaller.isInstalled
+    @State private var isInstallingHelper = false
+    @State private var helperInstallError: String?
 
     var body: some View {
         Form {
@@ -28,11 +31,18 @@ struct SettingsView: View {
                     Text("Status:")
                     Text(helperStatus)
                         .foregroundColor(helperRunning ? .green : .red)
+                    Spacer()
+                    if !helperRunning {
+                        Button(isInstallingHelper ? "Installing…" : "Install Helper") {
+                            installHelper()
+                        }
+                        .disabled(isInstallingHelper)
+                    }
                 }
-                if !helperRunning {
-                    Text("Install with: sudo /path/to/helper/install.sh")
+                if let helperInstallError {
+                    Text(helperInstallError)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.red)
                 }
             }
 
@@ -63,15 +73,26 @@ struct SettingsView: View {
         .onAppear {
             gateway = vpnManager.config.gateway
             userAgent = vpnManager.config.userAgent
+            helperRunning = HelperInstaller.isInstalled
         }
-    }
-
-    private var helperRunning: Bool {
-        FileManager.default.fileExists(atPath: "/var/run/openconnect-helper.sock")
     }
 
     private var helperStatus: String {
         helperRunning ? "Running" : "Not Running"
+    }
+
+    private func installHelper() {
+        isInstallingHelper = true
+        helperInstallError = nil
+        Task {
+            do {
+                try await HelperInstaller.install()
+                helperRunning = HelperInstaller.isInstalled
+            } catch {
+                helperInstallError = error.localizedDescription
+            }
+            isInstallingHelper = false
+        }
     }
 
     private func save() {

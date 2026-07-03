@@ -45,6 +45,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         vpnManager.onStatusChange = { [weak self] in
             self?.updateIcon()
         }
+
+        promptToInstallHelperIfNeeded()
+    }
+
+    private func promptToInstallHelperIfNeeded() {
+        guard !HelperInstaller.isInstalled else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Install Privileged Helper?"
+        alert.informativeText = "GPConnect needs a small helper daemon to run openconnect as root without " +
+            "prompting for your password every time. This requires your admin password once, now."
+        alert.addButton(withTitle: "Install")
+        alert.addButton(withTitle: "Not Now")
+        NSApp.activate(ignoringOtherApps: true)
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Task {
+            do {
+                try await HelperInstaller.install()
+            } catch {
+                let failure = NSAlert()
+                failure.alertStyle = .warning
+                failure.messageText = "Helper Install Failed"
+                failure.informativeText = error.localizedDescription
+                failure.runModal()
+            }
+        }
     }
 
     private func updateIcon() {

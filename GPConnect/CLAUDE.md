@@ -48,6 +48,23 @@ Do not trust `openconnect`'s stdout text as the sole signal that the tunnel is u
 
 Both the app (`Models/VPNConfig.swift`) and the CLI (`CLI/main.swift`) read/write the same JSON file at `~/Library/Application Support/GPConnect/config.json`, independently defining matching `Codable` structs (`VPNConfig`/`IPRange` vs. `CLIConfig`/`CLIIPRange`) rather than sharing a module — the CLI is a separate SwiftPM executable target (`Package.swift`) with no dependency on the app target, so the duplication is deliberate, not an oversight. If the JSON shape changes, update both.
 
+## Privileged helper auto-install
+
+`Services/HelperInstaller.swift` lets the app offer to install the privileged helper daemon itself instead of
+requiring the user to run `sudo helper/install.sh` in a terminal. `build.sh` copies `../helper/{install.sh,
+uninstall.sh,openconnect_helper,com.openconnect.helper.plist}` into `Contents/Resources/helper/` at build time
+(see the "Bundle the privileged helper daemon" step). At runtime, `HelperInstaller.install()` locates
+`install.sh` via `Bundle.main.url(forResource:withExtension:subdirectory:)` and runs it through
+`osascript -e 'do shell script "..." with administrator privileges'` — this shows a native macOS admin-password
+dialog without requiring `SMJobBless`/Service Management entitlements, which (like the WebAuthn entitlement
+below) would need a real Apple Developer ID this project doesn't have. `install.sh`'s own internal `sudo`
+calls are harmless no-ops here since the whole script is already running as root under the AppleScript
+elevation.
+
+`AppDelegate.applicationDidFinishLaunching` calls `promptToInstallHelperIfNeeded()` once per launch if
+`HelperInstaller.isInstalled` (checks for the socket file) is false; `SettingsView` also exposes a manual
+"Install Helper" button for when the user dismisses that prompt or the daemon later goes away.
+
 ## Known limitation: WebAuthn / Touch ID
 
 FIDO2/Touch ID 2FA does not work in the in-app SAML `WKWebView`. It requires the `com.apple.developer.web-browser` entitlement, which needs a real Apple Developer signing identity — ad-hoc signing (`codesign --sign -`, what `build.sh` does) cannot carry that entitlement, and attempting to add it without a matching identity makes the app fail to launch (`Launchd job spawn failed`). This is accepted as a current limitation rather than worked around; password/TOTP-based 2FA works fine.
