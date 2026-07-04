@@ -31,12 +31,14 @@ struct SAMLAuthView: View {
                 }
                 .padding()
             } else if let prelogin = preloginResponse {
+                let autofillUsername = vpnManager.config.autoFillCredentials == true ? vpnManager.config.savedUsername : nil
+                let autofillPassword = vpnManager.config.autoFillCredentials == true
+                    ? CredentialStore.loadPassword(account: vpnManager.config.gateway) : nil
                 SAMLWebView(
                     prelogin: prelogin,
                     gateway: vpnManager.config.gateway,
-                    autofillUsername: vpnManager.config.autoFillCredentials == true ? vpnManager.config.savedUsername : nil,
-                    autofillPassword: vpnManager.config.autoFillCredentials == true
-                        ? CredentialStore.loadPassword(account: vpnManager.config.gateway) : nil,
+                    autofillUsername: autofillUsername,
+                    autofillPassword: autofillPassword,
                     onComplete: { result in
                         vpnManager.onSAMLComplete(result)
                         WindowManager.shared.closeSAMLAuth()
@@ -118,6 +120,8 @@ struct SAMLWebView: NSViewRepresentable {
         let onComplete: (SAMLResult) -> Void
         let onFailed: (String) -> Void
         private var hasAttemptedAutofill = false
+        private var autofillTimer: Timer?
+        private var autofillAttempts = 0
 
         private static let samlPattern = try! NSRegularExpression(
             pattern: "<(?<header>saml-.+?|(?:prelogin-|portal-userauth)cookie)>(?<value>.*?)</\\k<header>>",
@@ -147,16 +151,37 @@ struct SAMLWebView: NSViewRepresentable {
         }
 
         /// Best-effort autofill for Okta's standard hosted Sign-In Widget (stable IDs across
-        /// most tenants) with generic input-type fallbacks for other IdPs. Only attempted once
-        /// per login session to avoid repeatedly re-submitting on later page loads (e.g. the
-        /// MFA step). Uses the native property setter before dispatching input/change events
-        /// since React-controlled forms (like Okta's widget) ignore a plain `.value =` assignment.
+        /// most tenants) with generic input-type fallbacks for other IdPs. Retries on a timer
+        /// (rather than only on WKNavigationDelegate callbacks) since Okta's widget renders its
+        /// form fields client-side after the page "finishes loading" from WebKit's perspective.
         private func attemptAutofill(in webView: WKWebView) {
-            guard !hasAttemptedAutofill,
+            guard !hasAttemptedAutofill, autofillTimer == nil,
                   let username = autofillUsername, !username.isEmpty,
-                  let password = autofillPassword, !password.isEmpty,
-                  let usernameJS = try? String(data: JSONEncoder().encode(username), encoding: .utf8),
+                  let password = autofillPassword, !password.isEmpty else {
+                return
+            }
+
+            autofillAttempts = 0
+            autofillTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self, weak webView] timer in
+                guard let self, let webView else { timer.invalidate(); return }
+                self.autofillAttempts += 1
+                self.runAutofillJS(in: webView, username: username, password: password) { success in
+                    if success {
+                        self.hasAttemptedAutofill = true
+                        timer.invalidate()
+                        self.autofillTimer = nil
+                    } else if self.autofillAttempts >= 20 {
+                        timer.invalidate()
+                        self.autofillTimer = nil
+                    }
+                }
+            }
+        }
+
+        private func runAutofillJS(in webView: WKWebView, username: String, password: String, completion: @escaping (Bool) -> Void) {
+            guard let usernameJS = try? String(data: JSONEncoder().encode(username), encoding: .utf8),
                   let passwordJS = try? String(data: JSONEncoder().encode(password), encoding: .utf8) else {
+                completion(false)
                 return
             }
 
@@ -191,10 +216,8 @@ struct SAMLWebView: NSViewRepresentable {
                 return false;
             })();
             """
-            webView.evaluateJavaScript(js) { [weak self] result, _ in
-                if (result as? Bool) == true {
-                    self?.hasAttemptedAutofill = true
-                }
+            webView.evaluateJavaScript(js) { result, _ in
+                completion((result as? Bool) == true)
             }
         }
 
