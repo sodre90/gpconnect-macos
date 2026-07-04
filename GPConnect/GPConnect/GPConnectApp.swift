@@ -25,9 +25,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var spinTimer: Timer?
     private var spinBaseImage: NSImage?
     private var spinAngle: CGFloat = 0
+    private var durationTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.imagePosition = .imageLeading
         updateIcon()
 
         popover = NSPopover()
@@ -86,6 +88,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 accessibilityDescription: "VPN Status"
             )
         }
+
+        if vpnManager.status == .connected {
+            startDurationTimer()
+        } else {
+            stopDurationTimer()
+            button.title = ""
+        }
+    }
+
+    private func startDurationTimer() {
+        updateDurationLabel()
+        guard durationTimer == nil else { return }
+        durationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateDurationLabel()
+            }
+        }
+        RunLoop.main.add(durationTimer!, forMode: .common)
+    }
+
+    private func stopDurationTimer() {
+        durationTimer?.invalidate()
+        durationTimer = nil
+    }
+
+    private func updateDurationLabel() {
+        guard let since = vpnManager.connectedSince else {
+            statusItem.button?.title = ""
+            return
+        }
+        let elapsed = Int(Date().timeIntervalSince(since))
+        let h = elapsed / 3600
+        let m = (elapsed % 3600) / 60
+        statusItem.button?.title = h > 0 ? " \(h)h \(m)m" : " \(m)m"
     }
 
     private func startSpinning() {

@@ -25,6 +25,8 @@ def find_openconnect():
 
 
 def handle_connection(conn, openconnect_path):
+    proc = None
+    watcher = None
     try:
         data = b""
         while b"\n" not in data:
@@ -46,13 +48,30 @@ def handle_connection(conn, openconnect_path):
         proc.stdin.write(cookie.encode() + b"\n")
         proc.stdin.close()
 
+        def watch_client():
+            # The caller only ever writes once (the initial JSON message) and
+            # otherwise just reads, so a blocking recv() here won't return until
+            # the client actually closes its end - that's our signal to tear
+            # down openconnect even if it never produces output for sendall()
+            # to fail on (an idle, already-up tunnel can go quiet for good).
+            try:
+                while conn.recv(4096):
+                    pass
+            except OSError:
+                pass
+            if proc.poll() is None:
+                proc.terminate()
+
+        watcher = threading.Thread(target=watch_client, daemon=True)
+        watcher.start()
+
         for line in proc.stdout:
             try:
                 conn.sendall(line)
             except (BrokenPipeError, OSError):
-                proc.terminate()
-                proc.wait()
-                return
+                break
+        if proc.poll() is None:
+            proc.terminate()
         proc.wait()
     except Exception as e:
         try:
@@ -60,6 +79,15 @@ def handle_connection(conn, openconnect_path):
         except Exception:
             pass
     finally:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            proc.wait()
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        if watcher is not None:
+            watcher.join(timeout=2)
         conn.close()
 
 

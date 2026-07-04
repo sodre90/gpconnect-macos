@@ -27,6 +27,7 @@ class VPNManager: ObservableObject {
     private var samlResult: SAMLResult?
     private var tunnelPollTask: Task<Void, Never>?
     private var preExistingTunnels: Set<String> = []
+    private var connectedTunnelInterfaces: Set<String> = []
 
     var statusIcon: String {
         switch status {
@@ -104,10 +105,37 @@ class VPNManager: ObservableObject {
         tunnelPollTask = nil
         let conn = helperConnection
         helperConnection = nil
-        Task { await conn?.disconnect() }
-        status = .disconnected
-        connectedSince = nil
-        appendLog("Disconnected")
+        let tunnelsToClear = connectedTunnelInterfaces
+        appendLog("Disconnecting...")
+
+        Task {
+            await conn?.disconnect()
+            await self.confirmDisconnected(expectedGoneInterfaces: tunnelsToClear)
+        }
+    }
+
+    /// Polls for the tunnel interface(s) to actually go away instead of assuming the
+    /// helper tore them down the moment we closed our end of the socket - closing the
+    /// socket only asks the daemon to kill openconnect, it doesn't guarantee it happened.
+    private func confirmDisconnected(expectedGoneInterfaces: Set<String>) async {
+        guard status == .disconnecting else { return }
+        let deadline = Date().addingTimeInterval(10)
+        while true {
+            if activeUtunInterfacesWithIPv4().isDisjoint(with: expectedGoneInterfaces) {
+                status = .disconnected
+                connectedSince = nil
+                connectedTunnelInterfaces = []
+                appendLog("Disconnected")
+                return
+            }
+            if Date() > deadline {
+                status = .error
+                errorMessage = "Failed to fully disconnect; the VPN interface may still be active"
+                appendLog("Warning: tunnel interface still present after disconnect request")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
     }
 
     func saveConfig() {
@@ -149,15 +177,27 @@ class VPNManager: ObservableObject {
                         }
                     }
                 }
-                if self.status == .connecting {
+                switch self.status {
+                case .connecting:
                     self.appendLog("openconnect exited before the tunnel came up.")
                     self.status = .error
                     self.errorMessage = "openconnect exited unexpectedly"
+                case .connected:
+                    self.appendLog("Connection dropped unexpectedly.")
+                    self.status = .error
+                    self.errorMessage = "Connection dropped unexpectedly"
+                    self.connectedSince = nil
+                    self.connectedTunnelInterfaces = []
+                    self.helperConnection = nil
+                default:
+                    break
                 }
             } catch {
-                self.status = .error
-                self.errorMessage = error.localizedDescription
-                self.appendLog("Error: \(error.localizedDescription)")
+                if self.status != .disconnected && self.status != .disconnecting {
+                    self.status = .error
+                    self.errorMessage = error.localizedDescription
+                    self.appendLog("Error: \(error.localizedDescription)")
+                }
             }
             self.tunnelPollTask?.cancel()
         }
@@ -165,8 +205,11 @@ class VPNManager: ObservableObject {
 
     private func markConnected() {
         guard status == .connecting else { return }
-        status = .connected
+        // Set before `status` so that onStatusChange (fired synchronously by status's
+        // didSet) observes a consistent connectedSince rather than nil.
         connectedSince = Date()
+        connectedTunnelInterfaces = activeUtunInterfacesWithIPv4().subtracting(preExistingTunnels)
+        status = .connected
         tunnelPollTask?.cancel()
     }
 
