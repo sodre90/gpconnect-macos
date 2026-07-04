@@ -69,6 +69,9 @@ Features
   icon while a connection is in progress
 - Connect/disconnect from the menu bar dropdown
 - Built-in SAML login window (`WKWebView`) — no separate browser needed
+- Optional credential autofill: stores a username/password in the macOS Keychain and auto-submits them on
+  the login page, so only MFA (e.g. Okta Verify) needs manual interaction each time
+- Connection log viewer (`Logs...`) for troubleshooting without digging through files on disk
 - Editable list of split-tunnel IP ranges (add/remove/enable/disable/import), stored in a JSON config file
   shared with the CLI
 - A `gpconnect` CLI for scripting: status, listing/editing IP ranges, reading config
@@ -137,9 +140,11 @@ Usage
 Click the shield icon to open the dropdown: **Connect** starts the SAML login flow in its own window; once
 you finish authenticating, GPConnect starts `openconnect` via the privileged helper daemon and the icon
 turns into a checkmark shield once the tunnel is up. **Disconnect** tears it down. **Edit Ranges...** opens
-a window to manage the split-tunnel IP ranges. **Settings...** lets you change the gateway address and
-User-Agent string, and also has an **Install Helper** button if the privileged helper daemon isn't running
-(you'll usually be prompted for this automatically on first launch instead).
+a window to manage the split-tunnel IP ranges. **Logs...** opens a window with the connection log (copy or
+clear it from there). **Settings...** lets you change the gateway address and User-Agent string, enable
+credential autofill (username/password, stored in the macOS Keychain — MFA is still required every time),
+and also has an **Install Helper** button if the privileged helper daemon isn't running (you'll usually be
+prompted for this automatically on first launch instead).
 
 ### CLI
 
@@ -164,8 +169,10 @@ Both the app and the CLI read/write the same file:
 ~/Library/Application Support/GPConnect/config.json
 ```
 
-It's plain JSON (gateway address, User-Agent, and a list of `{cidr, label, enabled}` IP ranges) — safe to
-edit by hand, via the app's "Edit Ranges..." window, or via `gpconnect ranges`/`gpconnect config set`.
+It's plain JSON (gateway address, User-Agent, autofill toggle/username, and a list of `{cidr, label, enabled}`
+IP ranges) — safe to edit by hand, via the app's "Edit Ranges..." window, or via
+`gpconnect ranges`/`gpconnect config set`. The autofill password is not in this file — it's stored
+separately in the macOS Keychain.
 
 Known limitations
 -----------------
