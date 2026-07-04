@@ -109,6 +109,12 @@ struct MenuBarView: View {
 
             Spacer()
 
+            Button("Logs...") {
+                WindowManager.shared.openLogs(vpnManager: vpnManager)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+
             Button("Settings...") {
                 WindowManager.shared.openSettings(vpnManager: vpnManager)
             }

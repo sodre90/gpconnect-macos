@@ -8,6 +8,7 @@ class WindowManager: ObservableObject {
     private var samlWindow: NSWindow?
     private var rangesWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var logsWindow: NSWindow?
 
     func openSAMLAuth(vpnManager: VPNManager) {
         if let existing = samlWindow, existing.isVisible {
@@ -87,5 +88,30 @@ class WindowManager: ObservableObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.settingsWindow = window
+    }
+
+    func openLogs(vpnManager: VPNManager) {
+        if let existing = logsWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = LogsView()
+            .environmentObject(vpnManager)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Connection Log"
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        self.logsWindow = window
     }
 }

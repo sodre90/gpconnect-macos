@@ -5,12 +5,16 @@ struct VPNConfig: Codable {
     var ipRanges: [IPRange]
     var openconnectPath: String?
     var userAgent: String
+    var autoFillCredentials: Bool?
+    var savedUsername: String?
 
     static let defaultConfig = VPNConfig(
         gateway: "",
         ipRanges: [],
         openconnectPath: nil,
-        userAgent: "PAN GlobalProtect"
+        userAgent: "PAN GlobalProtect",
+        autoFillCredentials: false,
+        savedUsername: nil
     )
 
     static var configURL: URL {

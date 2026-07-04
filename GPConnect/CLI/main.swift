@@ -7,6 +7,8 @@ struct CLIConfig: Codable {
     var ipRanges: [CLIIPRange]
     var openconnectPath: String?
     var userAgent: String
+    var autoFillCredentials: Bool?
+    var savedUsername: String?
 }
 
 struct CLIIPRange: Codable {

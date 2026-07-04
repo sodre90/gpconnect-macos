@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var helperRunning = HelperInstaller.isInstalled
     @State private var isInstallingHelper = false
     @State private var helperInstallError: String?
+    @State private var autoFillCredentials = false
+    @State private var savedUsername = ""
+    @State private var savedPassword = ""
 
     var body: some View {
         Form {
@@ -20,6 +23,17 @@ struct SettingsView: View {
             Section("Advanced") {
                 TextField("User-Agent", text: $userAgent)
                     .onSubmit { save() }
+            }
+
+            Section("Login Autofill") {
+                Toggle("Auto-fill and submit login credentials", isOn: $autoFillCredentials)
+                if autoFillCredentials {
+                    TextField("Username", text: $savedUsername)
+                    SecureField("Password", text: $savedPassword)
+                    Text("Password is stored in the macOS Keychain. Okta Verify (or other MFA) is still required every time.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Section("General") {
@@ -74,6 +88,9 @@ struct SettingsView: View {
             gateway = vpnManager.config.gateway
             userAgent = vpnManager.config.userAgent
             helperRunning = HelperInstaller.isInstalled
+            autoFillCredentials = vpnManager.config.autoFillCredentials ?? false
+            savedUsername = vpnManager.config.savedUsername ?? ""
+            savedPassword = CredentialStore.loadPassword(account: vpnManager.config.gateway) ?? ""
         }
     }
 
@@ -98,6 +115,13 @@ struct SettingsView: View {
     private func save() {
         vpnManager.config.gateway = gateway
         vpnManager.config.userAgent = userAgent
+        vpnManager.config.autoFillCredentials = autoFillCredentials
+        vpnManager.config.savedUsername = autoFillCredentials ? savedUsername : nil
+        if autoFillCredentials && !savedPassword.isEmpty {
+            CredentialStore.savePassword(savedPassword, account: gateway)
+        } else {
+            CredentialStore.deletePassword(account: gateway)
+        }
         vpnManager.saveConfig()
     }
 }

@@ -34,6 +34,9 @@ struct SAMLAuthView: View {
                 SAMLWebView(
                     prelogin: prelogin,
                     gateway: vpnManager.config.gateway,
+                    autofillUsername: vpnManager.config.autoFillCredentials == true ? vpnManager.config.savedUsername : nil,
+                    autofillPassword: vpnManager.config.autoFillCredentials == true
+                        ? CredentialStore.loadPassword(account: vpnManager.config.gateway) : nil,
                     onComplete: { result in
                         vpnManager.onSAMLComplete(result)
                         WindowManager.shared.closeSAMLAuth()
@@ -72,6 +75,8 @@ struct SAMLAuthView: View {
 struct SAMLWebView: NSViewRepresentable {
     let prelogin: PreloginResponse
     let gateway: String
+    let autofillUsername: String?
+    let autofillPassword: String?
     let onComplete: (SAMLResult) -> Void
     let onFailed: (String) -> Void
 
@@ -97,21 +102,38 @@ struct SAMLWebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(gateway: gateway, onComplete: onComplete, onFailed: onFailed)
+        Coordinator(
+            gateway: gateway,
+            autofillUsername: autofillUsername,
+            autofillPassword: autofillPassword,
+            onComplete: onComplete,
+            onFailed: onFailed
+        )
     }
 
     class Coordinator: NSObject, WKNavigationDelegate {
         let gateway: String
+        let autofillUsername: String?
+        let autofillPassword: String?
         let onComplete: (SAMLResult) -> Void
         let onFailed: (String) -> Void
+        private var hasAttemptedAutofill = false
 
         private static let samlPattern = try! NSRegularExpression(
             pattern: "<(?<header>saml-.+?|(?:prelogin-|portal-userauth)cookie)>(?<value>.*?)</\\k<header>>",
             options: []
         )
 
-        init(gateway: String, onComplete: @escaping (SAMLResult) -> Void, onFailed: @escaping (String) -> Void) {
+        init(
+            gateway: String,
+            autofillUsername: String?,
+            autofillPassword: String?,
+            onComplete: @escaping (SAMLResult) -> Void,
+            onFailed: @escaping (String) -> Void
+        ) {
             self.gateway = gateway
+            self.autofillUsername = autofillUsername
+            self.autofillPassword = autofillPassword
             self.onComplete = onComplete
             self.onFailed = onFailed
         }
@@ -120,6 +142,59 @@ struct SAMLWebView: NSViewRepresentable {
             webView.evaluateJavaScript("document.documentElement.outerHTML") { [weak self] result, error in
                 guard let self = self, let html = result as? String else { return }
                 self.checkForSAMLResult(in: html, from: webView.url)
+            }
+            attemptAutofill(in: webView)
+        }
+
+        /// Best-effort autofill for Okta's standard hosted Sign-In Widget (stable IDs across
+        /// most tenants) with generic input-type fallbacks for other IdPs. Only attempted once
+        /// per login session to avoid repeatedly re-submitting on later page loads (e.g. the
+        /// MFA step). Uses the native property setter before dispatching input/change events
+        /// since React-controlled forms (like Okta's widget) ignore a plain `.value =` assignment.
+        private func attemptAutofill(in webView: WKWebView) {
+            guard !hasAttemptedAutofill,
+                  let username = autofillUsername, !username.isEmpty,
+                  let password = autofillPassword, !password.isEmpty,
+                  let usernameJS = try? String(data: JSONEncoder().encode(username), encoding: .utf8),
+                  let passwordJS = try? String(data: JSONEncoder().encode(password), encoding: .utf8) else {
+                return
+            }
+
+            let js = """
+            (function() {
+                function setNativeValue(el, value) {
+                    var proto = Object.getPrototypeOf(el);
+                    var desc = Object.getOwnPropertyDescriptor(proto, 'value') ||
+                        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+                    if (desc && desc.set) { desc.set.call(el, value); } else { el.value = value; }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                function firstMatch(selectors) {
+                    for (var i = 0; i < selectors.length; i++) {
+                        var el = document.querySelector(selectors[i]);
+                        if (el) return el;
+                    }
+                    return null;
+                }
+                var userField = firstMatch(['#okta-signin-username', 'input[name="identifier"]',
+                    'input[name="username"]', 'input[autocomplete="username"]']);
+                var passField = firstMatch(['#okta-signin-password', 'input[name="credentials.passcode"]',
+                    'input[name="password"]', 'input[type="password"]']);
+                if (!passField) { return false; }
+                if (userField && !userField.value) { setNativeValue(userField, \(usernameJS)); }
+                setNativeValue(passField, \(passwordJS));
+                var submitBtn = document.querySelector('#okta-signin-submit');
+                if (submitBtn) { submitBtn.click(); return true; }
+                var form = passField.closest('form');
+                if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return true; }
+                return false;
+            })();
+            """
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                if (result as? Bool) == true {
+                    self?.hasAttemptedAutofill = true
+                }
             }
         }
 
