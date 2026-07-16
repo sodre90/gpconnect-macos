@@ -83,10 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             startSpinning()
         } else {
             stopSpinning()
-            button.image = NSImage(
-                systemSymbolName: vpnManager.statusIcon,
-                accessibilityDescription: "VPN Status"
-            )
+            button.image = statusImage()
         }
 
         if vpnManager.status == .connected {
@@ -95,6 +92,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             stopDurationTimer()
             button.title = ""
         }
+    }
+
+    private func statusImage() -> NSImage? {
+        guard let base = NSImage(systemSymbolName: vpnManager.statusIcon, accessibilityDescription: "VPN Status") else {
+            return nil
+        }
+        guard vpnManager.shouldTintIconRed else { return base }
+        let redConfig = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
+        let redImage = base.withSymbolConfiguration(redConfig) ?? base
+        redImage.isTemplate = false
+        return redImage
     }
 
     private func startDurationTimer() {

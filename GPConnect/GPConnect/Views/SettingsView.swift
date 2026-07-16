@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var autoFillCredentials = false
     @State private var savedUsername = ""
     @State private var savedPassword = ""
+    @State private var highlightDisconnectedIcon = true
 
     var body: some View {
         Form {
@@ -38,6 +39,7 @@ struct SettingsView: View {
 
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
+                Toggle("Highlight menu bar icon in red when disconnected", isOn: $highlightDisconnectedIcon)
             }
 
             Section("Helper Daemon") {
@@ -91,6 +93,7 @@ struct SettingsView: View {
             autoFillCredentials = vpnManager.config.autoFillCredentials ?? false
             savedUsername = vpnManager.config.savedUsername ?? ""
             savedPassword = CredentialStore.loadPassword(account: vpnManager.config.gateway) ?? ""
+            highlightDisconnectedIcon = vpnManager.config.highlightDisconnectedIcon ?? true
         }
     }
 
@@ -117,6 +120,7 @@ struct SettingsView: View {
         vpnManager.config.userAgent = userAgent
         vpnManager.config.autoFillCredentials = autoFillCredentials
         vpnManager.config.savedUsername = autoFillCredentials ? savedUsername : nil
+        vpnManager.config.highlightDisconnectedIcon = highlightDisconnectedIcon
         if autoFillCredentials && !savedPassword.isEmpty {
             CredentialStore.savePassword(savedPassword, account: gateway)
         } else {

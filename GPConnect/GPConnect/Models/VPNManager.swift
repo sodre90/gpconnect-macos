@@ -45,6 +45,14 @@ class VPNManager: ObservableObject {
         }
     }
 
+    var shouldTintIconRed: Bool {
+        guard config.highlightDisconnectedIcon ?? true else { return false }
+        switch status {
+        case .disconnected, .error: return true
+        default: return false
+        }
+    }
+
     var statusText: String {
         switch status {
         case .disconnected: return "Disconnected"
@@ -140,6 +148,7 @@ class VPNManager: ObservableObject {
 
     func saveConfig() {
         try? config.save()
+        onStatusChange?()
     }
 
     private func startOpenConnect(result: SAMLResult) {
