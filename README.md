@@ -33,8 +33,8 @@ supported in OpenConnect v8.0 or newer; v8.06+ is recommended.) It provides thre
 
 - **`gp-saml-gui`** — a Python script (macOS/Windows) that drives the SAML login in a webview and hands the
   resulting session to `openconnect`
-- **GPConnect** — a native macOS menu bar app and **`gpconnect`** CLI wrapping the same flow, with
-  connect/disconnect status and an editable list of split-tunnel IP ranges (see below)
+- **GPConnect** — a native macOS menu bar app wrapping the same flow, with connect/disconnect status and an
+  editable list of split-tunnel IP ranges (see below)
 - **A privileged helper daemon** (macOS) so either of the above can start `openconnect` as root without
   repeated `sudo` prompts
 
@@ -50,7 +50,7 @@ GPConnect: native macOS menu bar app
 =====================================
 
 **macOS users:** in addition to the Python script below, this repo includes **GPConnect** ([`GPConnect/`](GPConnect/)),
-a native Swift menu bar (status bar) app plus a companion CLI, in the spirit of the original GlobalProtect
+a native Swift menu bar (status bar) app, in the spirit of the original GlobalProtect
 client's menu bar icon. It gives you a GlobalProtect-style icon in the menu bar with connect/disconnect,
 live status, and an editable list of split-tunnel IP ranges — all backed by the same privileged helper
 daemon described below, so connecting never prompts for `sudo`.
@@ -73,8 +73,6 @@ Features
   the login page, so only MFA (e.g. Okta Verify) needs manual interaction each time
 - Connection log viewer (`Logs...`) for troubleshooting without digging through files on disk
 - Editable list of split-tunnel IP ranges (add/remove/enable/disable/import), stored in a JSON config file
-  shared with the CLI
-- A `gpconnect` CLI for scripting: status, listing/editing IP ranges, reading config
 
 GPConnect requirements
 ----------------------
@@ -92,7 +90,7 @@ Download a release
 
 The easiest way to get GPConnect is to grab the latest prebuilt release instead of building it yourself:
 
-1. Download `GPConnect-*-macos.zip` and `gpconnect-*-macos` from the
+1. Download `GPConnect-*-macos.zip` from the
    [Releases page](https://github.com/sodre90/gpconnect-macos/releases/latest).
 2. Unzip `GPConnect-*-macos.zip` — this gives you `GPConnect.app`.
 3. Continue with [Install GPConnect](#install-gpconnect) below.
@@ -108,9 +106,8 @@ cd GPConnect
 ./build.sh
 ```
 
-This builds both the app (`.build/app/GPConnect.app`) and the CLI (`.build/release/gpconnect`). It uses
-`swiftc`/`swift build` directly rather than `xcodebuild`, so it works with just the Command Line Tools —
-see [GPConnect/CLAUDE.md](GPConnect/CLAUDE.md) for why.
+This builds the app at `.build/app/GPConnect.app`. It uses `swiftc` directly rather than `xcodebuild`, so it
+works with just the Command Line Tools — see [GPConnect/CLAUDE.md](GPConnect/CLAUDE.md) for why.
 
 `GPConnect.xcodeproj` is included (generated via `xcodegen generate` from `project.yml`) purely so editors
 get proper Swift diagnostics and autocomplete; it isn't used to produce the shipped build.
@@ -120,8 +117,6 @@ Install GPConnect
 
 ```sh
 cp -R .build/app/GPConnect.app /Applications/    # or wherever you unzipped the downloaded release
-cp .build/release/gpconnect /usr/local/bin/      # or wherever you downloaded the CLI binary
-chmod +x /usr/local/bin/gpconnect                # if downloaded, it won't have the executable bit set
 open /Applications/GPConnect.app
 ```
 
@@ -135,8 +130,6 @@ will fail with a permissions error on the app bundle's extended attributes.
 Usage
 -----
 
-### Menu bar app
-
 Click the shield icon to open the dropdown: **Connect** starts the SAML login flow in its own window; once
 you finish authenticating, GPConnect starts `openconnect` via the privileged helper daemon and the icon
 turns into a checkmark shield once the tunnel is up. **Disconnect** tears it down. **Edit Ranges...** opens
@@ -146,33 +139,18 @@ credential autofill (username/password, stored in the macOS Keychain — MFA is 
 and also has an **Install Helper** button if the privileged helper daemon isn't running (you'll usually be
 prompted for this automatically on first launch instead).
 
-### CLI
-
-```sh
-gpconnect status                                     # connection + helper daemon status
-gpconnect ranges                                      # list all IP ranges
-gpconnect ranges add --cidr 10.5.0.0/16 --label "New"
-gpconnect ranges remove --cidr 10.5.0.0/16
-gpconnect ranges enable --cidr 10.5.0.0/16
-gpconnect ranges disable --cidr 10.5.0.0/16
-gpconnect vpn-slice-args                              # print enabled ranges as a vpn-slice argument string
-gpconnect config                                      # show gateway / user-agent
-gpconnect config set --gateway vpn.company.com
-```
-
 Configuration
 -------------
 
-Both the app and the CLI read/write the same file:
+The app stores its settings in:
 
 ```
 ~/Library/Application Support/GPConnect/config.json
 ```
 
 It's plain JSON (gateway address, User-Agent, autofill toggle/username, and a list of `{cidr, label, enabled}`
-IP ranges) — safe to edit by hand, via the app's "Edit Ranges..." window, or via
-`gpconnect ranges`/`gpconnect config set`. The autofill password is not in this file — it's stored
-separately in the macOS Keychain.
+IP ranges) — safe to edit by hand or via the app's "Edit Ranges..." window. The autofill password is not in
+this file — it's stored separately in the macOS Keychain.
 
 Known limitations
 -----------------

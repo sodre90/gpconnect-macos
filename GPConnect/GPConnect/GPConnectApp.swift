@@ -48,6 +48,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateIcon()
         }
 
+        NotificationManager.shared.requestAuthorization()
+        NotificationManager.shared.onNotificationTapped = { [weak self] in
+            self?.showPopover()
+        }
+
         promptToInstallHelperIfNeeded()
     }
 
@@ -176,12 +181,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             WindowManager.shared.openSAMLAuth(vpnManager: vpnManager)
             return
         }
-        guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
+            showPopover()
         }
+    }
+
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+        if vpnManager.status == .authenticating {
+            WindowManager.shared.openSAMLAuth(vpnManager: vpnManager)
+            return
+        }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

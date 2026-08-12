@@ -2,15 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "GPConnect",
+    name: "gpconnect-cli",
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "gpconnect", targets: ["gpconnect-cli"]),
     ],
     targets: [
-        .executableTarget(
-            name: "gpconnect-cli",
-            path: "CLI"
-        )
+        .executableTarget(name: "gpconnect-cli")
     ]
 )

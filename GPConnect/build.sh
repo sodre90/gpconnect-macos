@@ -39,8 +39,11 @@ codesign --force --sign - --entitlements GPConnect/GPConnect.entitlements "$MACO
 
 echo "==> Creating app bundle..."
 
-# Copy Info.plist
+# Copy Info.plist, stamping the version from the repo-root VERSION file
 cp GPConnect/Info.plist "$CONTENTS/Info.plist"
+VERSION="$(tr -d '[:space:]' < ../VERSION)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$CONTENTS/Info.plist"
 
 # Copy default config to Resources
 cp GPConnect/Resources/default-config.json "$RESOURCES/default-config.json"
@@ -57,10 +60,5 @@ echo "==> Built: $APP_BUNDLE"
 echo ""
 echo "To run:     open $APP_BUNDLE"
 echo "To install: cp -R $APP_BUNDLE /Applications/"
-
-# Also build CLI
 echo ""
-echo "==> Building CLI..."
-swift build -c release --product gpconnect 2>&1 | grep -v "^Build" || true
-echo "==> CLI built: .build/release/gpconnect"
-echo "    Install:   cp .build/release/gpconnect /usr/local/bin/"
+echo "The companion gpconnect CLI is a separate package — see cli/README.md"

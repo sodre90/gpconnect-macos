@@ -12,6 +12,12 @@ struct SettingsView: View {
     @State private var savedUsername = ""
     @State private var savedPassword = ""
     @State private var highlightDisconnectedIcon = true
+    @State private var notificationsDenied = false
+    @State private var notifyOnDisconnect = true
+    @State private var autoDisconnectEnabled = false
+    @State private var autoDisconnectMinutes = 240
+    @State private var connectedReminderEnabled = false
+    @State private var connectedReminderMinutes = 240
 
     var body: some View {
         Form {
@@ -40,6 +46,41 @@ struct SettingsView: View {
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                 Toggle("Highlight menu bar icon in red when disconnected", isOn: $highlightDisconnectedIcon)
+            }
+
+            Section("Notifications") {
+                if notificationsDenied {
+                    Text("Notifications are turned off for GPConnect in System Settings › Notifications. "
+                         + "Auto-disconnect still works, but no alerts will be shown.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Toggle("Notify when the VPN disconnects", isOn: $notifyOnDisconnect)
+                    .disabled(notificationsDenied)
+
+                Toggle("Auto-disconnect after a set time", isOn: $autoDisconnectEnabled)
+                if autoDisconnectEnabled {
+                    HStack {
+                        Text("Disconnect after")
+                        TextField("", value: $autoDisconnectMinutes, format: .number)
+                            .frame(width: 50)
+                            .onSubmit { save() }
+                        Text("minutes")
+                    }
+                }
+
+                Toggle("Remind me if I'm still connected", isOn: $connectedReminderEnabled)
+                    .disabled(notificationsDenied)
+                if connectedReminderEnabled {
+                    HStack {
+                        Text("Remind after")
+                        TextField("", value: $connectedReminderMinutes, format: .number)
+                            .frame(width: 50)
+                            .onSubmit { save() }
+                        Text("minutes")
+                    }
+                }
             }
 
             Section("Helper Daemon") {
@@ -94,6 +135,14 @@ struct SettingsView: View {
             savedUsername = vpnManager.config.savedUsername ?? ""
             savedPassword = CredentialStore.loadPassword(account: vpnManager.config.gateway) ?? ""
             highlightDisconnectedIcon = vpnManager.config.highlightDisconnectedIcon ?? true
+            notifyOnDisconnect = vpnManager.config.notifyOnDisconnect ?? true
+            autoDisconnectEnabled = vpnManager.config.autoDisconnectEnabled ?? false
+            autoDisconnectMinutes = vpnManager.config.autoDisconnectMinutes ?? 240
+            connectedReminderEnabled = vpnManager.config.connectedReminderEnabled ?? false
+            connectedReminderMinutes = vpnManager.config.connectedReminderMinutes ?? 240
+        }
+        .task {
+            notificationsDenied = await NotificationManager.shared.authorizationDenied()
         }
     }
 
@@ -115,12 +164,21 @@ struct SettingsView: View {
         }
     }
 
+    private func clampMinutes(_ minutes: Int) -> Int {
+        min(max(1, minutes), VPNManager.maxScheduleMinutes)
+    }
+
     private func save() {
         vpnManager.config.gateway = gateway
         vpnManager.config.userAgent = userAgent
         vpnManager.config.autoFillCredentials = autoFillCredentials
         vpnManager.config.savedUsername = autoFillCredentials ? savedUsername : nil
         vpnManager.config.highlightDisconnectedIcon = highlightDisconnectedIcon
+        vpnManager.config.notifyOnDisconnect = notifyOnDisconnect
+        vpnManager.config.autoDisconnectEnabled = autoDisconnectEnabled
+        vpnManager.config.autoDisconnectMinutes = clampMinutes(autoDisconnectMinutes)
+        vpnManager.config.connectedReminderEnabled = connectedReminderEnabled
+        vpnManager.config.connectedReminderMinutes = clampMinutes(connectedReminderMinutes)
         if autoFillCredentials && !savedPassword.isEmpty {
             CredentialStore.savePassword(savedPassword, account: gateway)
         } else {

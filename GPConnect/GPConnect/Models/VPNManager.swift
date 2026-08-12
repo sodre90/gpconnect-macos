@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import Combine
@@ -28,6 +29,8 @@ class VPNManager: ObservableObject {
     private var tunnelPollTask: Task<Void, Never>?
     private var preExistingTunnels: Set<String> = []
     private var connectedTunnelInterfaces: Set<String> = []
+    private var autoDisconnectTask: Task<Void, Never>?
+    private var connectedReminderTask: Task<Void, Never>?
 
     var statusIcon: String {
         switch status {
@@ -79,8 +82,31 @@ class VPNManager: ObservableObject {
         enabledRanges.map(\.cidr).joined(separator: " ")
     }
 
+    /// Upper bound on any scheduled duration. Without it, a hand-edited config.json
+    /// (the README invites editing it) can overflow the UInt64 nanosecond conversion
+    /// in Task.sleep and trap.
+    static let maxScheduleMinutes = 10080  // one week
+
     init() {
         self.config = VPNConfig.load()
+        observeSystemWake()
+    }
+
+    /// Task.sleep does not advance while the machine is asleep, so a timer armed before
+    /// a sleep fires late by roughly the sleep duration. Both schedule methods recompute
+    /// from `connectedSince` and handle the already-elapsed case, so re-arming on wake
+    /// is enough to correct the drift.
+    private func observeSystemWake() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleAutoDisconnectIfEnabled()
+                self?.scheduleConnectedReminderIfEnabled()
+            }
+        }
     }
 
     func connect() {
@@ -111,6 +137,7 @@ class VPNManager: ObservableObject {
         status = .disconnecting
         tunnelPollTask?.cancel()
         tunnelPollTask = nil
+        cancelScheduledNotificationTasks()
         let conn = helperConnection
         helperConnection = nil
         let tunnelsToClear = connectedTunnelInterfaces
@@ -149,6 +176,10 @@ class VPNManager: ObservableObject {
     func saveConfig() {
         try? config.save()
         onStatusChange?()
+        if status == .connected {
+            scheduleAutoDisconnectIfEnabled()
+            scheduleConnectedReminderIfEnabled()
+        }
     }
 
     private func startOpenConnect(result: SAMLResult) {
@@ -198,6 +229,8 @@ class VPNManager: ObservableObject {
                     self.connectedSince = nil
                     self.connectedTunnelInterfaces = []
                     self.helperConnection = nil
+                    self.cancelScheduledNotificationTasks()
+                    self.notifyDisconnectIfEnabled(body: "Connection dropped unexpectedly.")
                 default:
                     break
                 }
@@ -220,6 +253,72 @@ class VPNManager: ObservableObject {
         connectedTunnelInterfaces = activeUtunInterfacesWithIPv4().subtracting(preExistingTunnels)
         status = .connected
         tunnelPollTask?.cancel()
+        scheduleAutoDisconnectIfEnabled()
+        scheduleConnectedReminderIfEnabled()
+    }
+
+    /// Reschedules from `connectedSince` (not "now") so calling this again mid-session,
+    /// e.g. after Settings are saved, recomputes correctly instead of extending the session.
+    private func scheduleAutoDisconnectIfEnabled() {
+        autoDisconnectTask?.cancel()
+        autoDisconnectTask = nil
+        guard status == .connected,
+              let connectedSince,
+              config.autoDisconnectEnabled ?? false else { return }
+        let totalMinutes = min(config.autoDisconnectMinutes ?? 240, Self.maxScheduleMinutes)
+        guard totalMinutes > 0 else { return }
+        let disconnectAt = connectedSince.addingTimeInterval(Double(totalMinutes) * 60)
+
+        if disconnectAt > Date() {
+            autoDisconnectTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(disconnectAt.timeIntervalSinceNow * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.appendLog("Auto-disconnecting after \(totalMinutes) minute(s).")
+                self?.notifyDisconnectIfEnabled(body: "VPN auto-disconnected after \(totalMinutes) minute(s).")
+                self?.disconnect()
+            }
+        } else {
+            appendLog("Auto-disconnecting (configured duration already elapsed).")
+            notifyDisconnectIfEnabled(body: "VPN auto-disconnected after \(totalMinutes) minute(s).")
+            disconnect()
+        }
+    }
+
+    /// Independent of auto-disconnect: there's no way to know a real disconnect time
+    /// unless auto-disconnect is also configured, so this just reminds the user they're
+    /// still connected after a fixed duration since `connectedSince`.
+    private func scheduleConnectedReminderIfEnabled() {
+        connectedReminderTask?.cancel()
+        connectedReminderTask = nil
+        guard status == .connected,
+              let connectedSince,
+              config.connectedReminderEnabled ?? false else { return }
+        let minutes = min(config.connectedReminderMinutes ?? 240, Self.maxScheduleMinutes)
+        guard minutes > 0 else { return }
+        let fireAt = connectedSince.addingTimeInterval(Double(minutes) * 60)
+        guard fireAt > Date() else { return }
+
+        connectedReminderTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(fireAt.timeIntervalSinceNow * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.notify(body: "Still connected to the VPN after \(minutes) minute(s).")
+        }
+    }
+
+    private func cancelScheduledNotificationTasks() {
+        autoDisconnectTask?.cancel()
+        autoDisconnectTask = nil
+        connectedReminderTask?.cancel()
+        connectedReminderTask = nil
+    }
+
+    private func notifyDisconnectIfEnabled(body: String) {
+        guard config.notifyOnDisconnect ?? true else { return }
+        notify(body: body)
+    }
+
+    private func notify(body: String) {
+        NotificationManager.shared.notify(title: "GPConnect", body: body)
     }
 
     private func startTunnelPolling() {

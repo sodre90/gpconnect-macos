@@ -8,10 +8,11 @@
     <string>GPConnect</string>
     <key>CFBundleIdentifier</key>
     <string>com.perdos.gpconnect</string>
+    <!-- Placeholder: build.sh overwrites both from the repo-root VERSION file. -->
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>0.0.0-dev</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>0.0.0-dev</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>

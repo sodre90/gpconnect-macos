@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11', '3.x']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.x']
 
     steps:
     - uses: actions/checkout@v3
@@ -34,3 +34,23 @@ jobs:
       run: |
         python -m py_compile gp_saml_gui.py
         python -m py_compile test-globalprotect-login.py
+
+  build-macos:
+
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Show toolchain
+      run: swift --version
+    - name: Build GPConnect.app
+      working-directory: GPConnect
+      run: ./build.sh
+    - name: Check CLI version stamp matches VERSION
+      working-directory: GPConnect
+      run: |
+        make version
+        git diff --exit-code cli/Sources/gpconnect-cli/Version.swift
+    - name: Build gpconnect CLI
+      working-directory: GPConnect/cli
+      run: swift build -c release

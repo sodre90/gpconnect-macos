@@ -1,7 +1,5 @@
 import Foundation
 
-let version = "1.0.0"
-
 struct CLIConfig: Codable {
     var gateway: String
     var ipRanges: [CLIIPRange]
@@ -9,6 +7,12 @@ struct CLIConfig: Codable {
     var userAgent: String
     var autoFillCredentials: Bool?
     var savedUsername: String?
+    var highlightDisconnectedIcon: Bool?
+    var notifyOnDisconnect: Bool?
+    var autoDisconnectEnabled: Bool?
+    var autoDisconnectMinutes: Int?
+    var connectedReminderEnabled: Bool?
+    var connectedReminderMinutes: Int?
 }
 
 struct CLIIPRange: Codable {

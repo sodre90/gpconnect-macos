@@ -6,8 +6,12 @@ __pycache__/
 # macOS
 .DS_Store
 
+# JetBrains
+.idea/
+
 # Swift / Xcode build artifacts
 GPConnect/.build/
+GPConnect/cli/.build/
 GPConnect/GPConnect.xcodeproj/
 DerivedData/
 *.xcuserstate

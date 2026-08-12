@@ -8,6 +8,11 @@ struct VPNConfig: Codable {
     var autoFillCredentials: Bool?
     var savedUsername: String?
     var highlightDisconnectedIcon: Bool?
+    var notifyOnDisconnect: Bool?
+    var autoDisconnectEnabled: Bool?
+    var autoDisconnectMinutes: Int?
+    var connectedReminderEnabled: Bool?
+    var connectedReminderMinutes: Int?
 
     static let defaultConfig = VPNConfig(
         gateway: "",
@@ -16,7 +21,12 @@ struct VPNConfig: Codable {
         userAgent: "PAN GlobalProtect",
         autoFillCredentials: false,
         savedUsername: nil,
-        highlightDisconnectedIcon: true
+        highlightDisconnectedIcon: true,
+        notifyOnDisconnect: true,
+        autoDisconnectEnabled: false,
+        autoDisconnectMinutes: 240,
+        connectedReminderEnabled: false,
+        connectedReminderMinutes: 240
     )
 
     static var configURL: URL {
