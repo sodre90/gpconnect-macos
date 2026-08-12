@@ -34,9 +34,6 @@ swiftc \
     -o "$MACOS/$APP_NAME" \
     $SOURCES
 
-# Sign with entitlements (enables WebAuthn/Touch ID in WKWebView)
-codesign --force --sign - --entitlements GPConnect/GPConnect.entitlements "$MACOS/$APP_NAME"
-
 echo "==> Creating app bundle..."
 
 # Copy Info.plist, stamping the version from the repo-root VERSION file
@@ -55,6 +52,14 @@ chmod +x "$RESOURCES/helper/install.sh" "$RESOURCES/helper/uninstall.sh" "$RESOU
 
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS/PkgInfo"
+
+# Sign the whole bundle LAST, so Resources/helper/* is covered by the seal. Signing
+# earlier (or signing just the executable) leaves install.sh unsealed, and the app runs
+# it as root via osascript -- an unsealed copy would be tampering the signature misses.
+# The --entitlements flag enables WebAuthn/Touch ID in WKWebView.
+echo "==> Signing bundle..."
+codesign --force --sign - --entitlements GPConnect/GPConnect.entitlements "$APP_BUNDLE"
+codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 echo "==> Built: $APP_BUNDLE"
 echo ""
