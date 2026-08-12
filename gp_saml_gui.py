@@ -147,6 +147,8 @@ def parse_args(args = None):
                    help='Extra form field(s) to pass to include in the login query string (e.g. "-f magic-cookie-value=deadbeef01234567")')
     p.add_argument('--allow-insecure-crypto', dest='insecure', action='store_true',
                    help='Allow use of insecure renegotiation or ancient 3DES and RC4 ciphers')
+    p.add_argument('--no-verify', dest='verify', action='store_false', default=True,
+                   help="Don't verify the gateway's TLS certificate (affects this script's requests, not the SAML webview)")
     p.add_argument('--user-agent', '--useragent', default='PAN GlobalProtect',
                    help='Use the provided string as the HTTP User-Agent header (default is %(default)r, as used by OpenConnect)')
     p.add_argument('openconnect_extra', nargs='*', help="Extra arguments to include in output OpenConnect command-line")
@@ -169,20 +171,23 @@ def parse_args(args = None):
 class SSLContextAdapter(requests.adapters.HTTPAdapter):
     '''Adapt to older TLS stacks (e.g. GlobalProtect gateways) that would raise errors otherwise.
 
-    Always disables certificate verification and enables unsafe legacy renegotiation for servers
-    without RFC 5746 support. If insecure=True (--allow-insecure-crypto), also enables weak ciphers
+    Always enables unsafe legacy renegotiation for servers without RFC 5746 support. If verify=False
+    (--no-verify), also skips certificate and hostname validation, for gateways presenting a
+    certificate that doesn't chain to a trusted root. If insecure=True (--allow-insecure-crypto), also enables weak ciphers
     such as 3DES or RC4 and weak Diffie-Hellman key exchange sizes, which OpenSSL 3.0+ disables by
     default (see https://github.com/psf/requests/issues/4775#issuecomment-478198879).
     '''
-    def __init__(self, *args, insecure=False, **kwargs):
+    def __init__(self, *args, insecure=False, verify=True, **kwargs):
         self.insecure = insecure
+        self.verify = verify
         super().__init__(*args, **kwargs)
 
     def init_poolmanager(self, *args, **kwargs):
         ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if not self.verify:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
         if self.insecure:
             ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
 
@@ -193,7 +198,7 @@ def main(args = None):
     p, args = parse_args(args)
 
     s = requests.Session()
-    s.mount('https://', SSLContextAdapter(insecure=args.insecure))
+    s.mount('https://', SSLContextAdapter(insecure=args.insecure, verify=args.verify))
     s.headers['User-Agent'] = 'PAN GlobalProtect' if args.user_agent is None else args.user_agent
     s.cert = args.cert
 
@@ -209,7 +214,7 @@ def main(args = None):
         if args.verbose:
             print("Looking for SAML auth tags in response to %s..." % endpoint, file=stderr)
         try:
-            res = s.post(endpoint, verify=False, data=data)
+            res = s.post(endpoint, verify=args.verify, data=data)
         except Exception as ex:
             rootex = ex
             while True:
@@ -219,7 +224,7 @@ def main(args = None):
                     break
                 rootex = rootex.__cause__ or rootex.__context__
             if isinstance(rootex, ssl.CertificateError):
-                p.error("SSL certificate error: %s" % rootex)
+                p.error("SSL certificate error (try --no-verify to ignore): %s" % rootex)
             elif isinstance(rootex, ssl.SSLError):
                 p.error("SSL error (try --allow-insecure-crypto to ignore): %s" % rootex)
             else:
