@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import AppKit
 
 struct SAMLAuthView: View {
     @EnvironmentObject var vpnManager: VPNManager
@@ -82,12 +83,19 @@ struct SAMLWebView: NSViewRepresentable {
     let onComplete: (SAMLResult) -> Void
     let onFailed: (String) -> Void
 
+    /// A real desktop-Safari UA (not the "PAN GlobalProtect" UA that openconnect uses).
+    /// Okta's Sign-In Widget gates FastPass device detection on a recognized browser, so
+    /// the SAML webview must not identify as the GlobalProtect client here.
+    private static let webViewUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
-        webView.customUserAgent = "PAN GlobalProtect"
+        webView.customUserAgent = Self.webViewUserAgent
+        webView.isInspectable = true
 
         switch prelogin.method {
         case .post(let html):
@@ -140,6 +148,21 @@ struct SAMLWebView: NSViewRepresentable {
             self.autofillPassword = autofillPassword
             self.onComplete = onComplete
             self.onFailed = onFailed
+        }
+
+        /// Hand off non-web URL schemes (e.g. `okta-verify://`) to the native app that owns
+        /// them. Okta FastPass uses such a scheme to launch/wake Okta Verify; without this the
+        /// navigation would be silently dropped by WKWebView.
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "file"]
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               !webSchemes.contains(scheme) {
+                DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
