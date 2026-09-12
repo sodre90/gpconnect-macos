@@ -48,6 +48,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateIcon()
         }
 
+        CLIServer.shared.start(vpnManager: vpnManager)
+
         NotificationManager.shared.requestAuthorization()
         NotificationManager.shared.onNotificationTapped = { [weak self] in
             self?.showPopover()

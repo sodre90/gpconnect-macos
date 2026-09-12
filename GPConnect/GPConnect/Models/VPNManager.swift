@@ -109,6 +109,8 @@ class VPNManager: ObservableObject {
         }
     }
 
+    private var pendingCLIAuth: ((Result<SAMLResult, Error>) -> Void)?
+
     func connect() {
         guard status == .disconnected || status == .error else { return }
         status = .authenticating
@@ -117,9 +119,27 @@ class VPNManager: ObservableObject {
         showAuthWindow = true
     }
 
+    /// Runs the SAML login for a `gpconnect` CLI request and hands back the auth
+    /// result without starting the tunnel — the CLI drives the helper daemon itself.
+    func authenticateForCLI(_ completion: @escaping (Result<SAMLResult, Error>) -> Void) {
+        guard status == .disconnected || status == .error else {
+            completion(.failure(GPConnectError.authFailed("GPConnect is not idle (status: \(status.rawValue))")))
+            return
+        }
+        pendingCLIAuth = completion
+        connect()
+    }
+
     func onSAMLComplete(_ result: SAMLResult) {
-        self.samlResult = result
         showAuthWindow = false
+        if let pending = pendingCLIAuth {
+            pendingCLIAuth = nil
+            status = .disconnected
+            appendLog("SAML auth complete for \(result.username) (CLI request)")
+            pending(.success(result))
+            return
+        }
+        self.samlResult = result
         status = .connecting
         appendLog("SAML auth complete for \(result.username)")
         startOpenConnect(result: result)
@@ -127,6 +147,13 @@ class VPNManager: ObservableObject {
 
     func onSAMLFailed(_ error: String) {
         showAuthWindow = false
+        if let pending = pendingCLIAuth {
+            pendingCLIAuth = nil
+            status = .disconnected
+            appendLog("SAML auth failed: \(error) (CLI request)")
+            pending(.failure(GPConnectError.authFailed(error)))
+            return
+        }
         status = .error
         errorMessage = error
         appendLog("SAML auth failed: \(error)")

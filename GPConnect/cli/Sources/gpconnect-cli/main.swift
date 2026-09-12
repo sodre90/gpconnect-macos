@@ -42,6 +42,15 @@ func printUsage() {
         gpconnect <command> [options]
 
     COMMANDS:
+        connect         Start the tunnel; attaches until Ctrl+C. Default login opens a
+                        hidden background browser on this Mac — nothing to see, works
+                        over SSH; the app does NOT need to run. Approve the Okta
+                        Verify push on your phone. [--user <name>]
+                        --app         reuse the running GPConnect app for the login instead
+                        --http        pure-HTTP Okta login, no window at all (fails on
+                                       device-proximity-policy orgs) [--mfa push|totp]
+                        --dry-run     show the plan without logging in
+                        --verbose     per-step trace on stderr
         status          Show VPN connection status
         ranges          List configured IP ranges
         ranges add      Add an IP range (--cidr <cidr> [--label <label>])
@@ -197,6 +206,8 @@ guard let command = args.first else {
 }
 
 switch command {
+case "connect":
+    await connectCommand(args: args)
 case "status":
     showStatus()
 case "ranges":
