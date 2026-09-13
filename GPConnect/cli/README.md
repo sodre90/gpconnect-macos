@@ -76,6 +76,11 @@ gpconnect config set --gateway vpn.company.com
   (`gpconnect ranges` to toggle them). With zero enabled ranges, `connect` brings up a full tunnel.
 - **Attach mode**: openconnect output streams to the terminal; Ctrl+C shuts the socket down, which is
   the daemon's cue to terminate openconnect (verified in `../../helper/openconnect_helper`).
+- **Shown in the menu bar**: while the tunnel is up, `connect` writes `cli-session.json` beside the
+  config, so a running GPConnect app shows the shield as connected ("Connected via CLI") instead of
+  claiming it's disconnected, and offers "Disconnect CLI Session" — which asks this process to tear
+  the tunnel down (openconnect runs as root, so the app can't kill it directly). The marker is
+  removed on exit, and a stale one left by `kill -9` is discarded once its pid is gone.
 - **TLS**: `--http` validates certificates trusted-everything for the login hops (same posture as
   the app's prelogin handling), so treat a MITM on the IdP leg as in-scope for untrusted networks.
 

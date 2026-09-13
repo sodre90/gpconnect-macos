@@ -26,6 +26,8 @@ final class SAMLWebViewLogin: NSObject, WKNavigationDelegate, NSWindowDelegate {
     private var lastHTML = ""
     private var dumpedStall = false
     private var awaitingGatewayReport = false
+    private var idpReloads = 0
+    private var lastIdPReloadTick = 0
 
     init(username: String, password: String, gateway: String) {
         self.username = username
@@ -112,12 +114,28 @@ final class SAMLWebViewLogin: NSObject, WKNavigationDelegate, NSWindowDelegate {
         }
     }
 
+    /// Okta's SP-initiated interstitial renders the sign-in widget via an async script; when
+    /// that script hiccups it shows its own "page has timed out — please refresh" banner and
+    /// sits there forever (nothing to autofill). Reload the page (up to 3x) to re-trigger it.
+    private func recoverStalledIdPIfNeeded(_ html: String) {
+        guard webView.url?.host != gateway, pollTicks - lastIdPReloadTick >= 6 else { return }
+        let lower = html.lowercased()
+        let stalled = (lower.contains("has timed out") && lower.contains("refresh"))
+            || (lower.contains("sign in with your account") && !lower.contains("okta-sign-in"))
+        guard stalled, idpReloads < 3 else { return }
+        idpReloads += 1
+        lastIdPReloadTick = pollTicks
+        verboseLog("IdP widget stalled (\"page has timed out\") — reloading (\(idpReloads)/3)")
+        webView.reload()
+    }
+
     private func inspect(_ html: String) {
         self.lastHTML = html
         if let saml = scrapeSAMLResult(html, server: self.webView.url?.host ?? self.gateway) {
             self.complete(with: .success(saml))
             return
         }
+        self.recoverStalledIdPIfNeeded(html)
         if self.awaitingGatewayReport {
             self.awaitingGatewayReport = false
             self.reportState(force: true)

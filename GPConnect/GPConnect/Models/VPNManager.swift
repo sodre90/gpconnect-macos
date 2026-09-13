@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import SwiftUI
 import Combine
+import Darwin
 
 enum VPNStatus: String {
     case disconnected
@@ -22,6 +23,12 @@ class VPNManager: ObservableObject {
     @Published var connectedSince: Date?
     @Published var errorMessage: String?
     @Published var showAuthWindow = false
+    @Published private(set) var externalCLISession: CLISessionInfo? {
+        didSet {
+            guard oldValue?.pid != externalCLISession?.pid else { return }
+            onStatusChange?()
+        }
+    }
 
     var onStatusChange: (() -> Void)?
     private var helperConnection: HelperDaemonConnection?
@@ -31,8 +38,15 @@ class VPNManager: ObservableObject {
     private var connectedTunnelInterfaces: Set<String> = []
     private var autoDisconnectTask: Task<Void, Never>?
     private var connectedReminderTask: Task<Void, Never>?
+    private var cliSessionMonitorTask: Task<Void, Never>?
+    private var oldExternalSessionExisted = false
+
+    /// True while a tunnel we did not start ourselves — a `gpconnect connect` run — is
+    /// live and this app is otherwise idle. Rendered as a connected-but-CLI shield.
+    var isExternalCLIConnected: Bool { externalCLISession != nil && status == .disconnected }
 
     var statusIcon: String {
+        if isExternalCLIConnected { return "checkmark.shield" }
         switch status {
         case .disconnected: return "shield.slash"
         case .connecting, .authenticating, .disconnecting: return "arrow.triangle.2.circlepath"
@@ -49,6 +63,7 @@ class VPNManager: ObservableObject {
     }
 
     var shouldTintIconRed: Bool {
+        if isExternalCLIConnected { return false }
         guard config.highlightDisconnectedIcon ?? true else { return false }
         switch status {
         case .disconnected, .error: return true
@@ -57,6 +72,12 @@ class VPNManager: ObservableObject {
     }
 
     var statusText: String {
+        if let session = externalCLISession, status == .disconnected {
+            let elapsed = Int(Date().timeIntervalSince1970 - session.startedAtEpoch)
+            let h = elapsed / 3600
+            let m = (elapsed % 3600) / 60
+            return "Connected via CLI (\(h > 0 ? "\(h)h " : "")\(m)m)"
+        }
         switch status {
         case .disconnected: return "Disconnected"
         case .connecting: return "Connecting..."
@@ -369,6 +390,47 @@ class VPNManager: ObservableObject {
         }
     }
 
+    /// A `gpconnect connect` run writes a session marker while its tunnel is up. Watch for it
+    /// so the menu bar represents CLI-started tunnels instead of claiming to be disconnected.
+    func startCLISessionMonitor() {
+        cliSessionMonitorTask?.cancel()
+        cliSessionMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.refreshExternalCLISession()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    private func refreshExternalCLISession() {
+        let found = CLISessionInfo.read()
+        guard found?.pid != externalCLISession?.pid else { return }
+        externalCLISession = found
+        if let found {
+            appendLog("gpconnect CLI tunnel detected (pid \(found.pid), \(found.gateway))")
+        } else if oldExternalSessionExisted {
+            appendLog("gpconnect CLI tunnel ended")
+        }
+        oldExternalSessionExisted = found != nil
+    }
+
+    /// openconnect runs as root under the helper daemon, so the app cannot signal it. The CLI
+    /// owns the socket whose closure tears the tunnel down, so ask it to do that via a stop file.
+    func disconnectExternalCLISession() {
+        guard let session = externalCLISession else { return }
+        appendLog("Asking gpconnect (pid \(session.pid)) to disconnect...")
+        session.requestStop()
+        Task { @MainActor [weak self] in
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self?.refreshExternalCLISession()
+                if self?.externalCLISession == nil { return }
+            }
+            self?.appendLog("gpconnect did not confirm disconnect; run Ctrl+C in its terminal.")
+        }
+    }
+
     private func appendLog(_ message: String) {
         connectionLog.append(message)
         if connectionLog.count > 200 {
@@ -382,4 +444,40 @@ struct SAMLResult {
     let cookie: String
     let cookieName: String
     let server: String
+}
+
+/// Mirror of the marker `gpconnect connect` writes while its tunnel is up
+/// (`writeCLISessionMarker` in `cli/Sources/gpconnect-cli/Connect.swift`) — keep both in sync.
+struct CLISessionInfo: Codable, Equatable {
+    let pid: Int32
+    let user: String
+    let cookieName: String
+    let gateway: String
+    let vpnSlice: String
+    let startedAtEpoch: TimeInterval
+
+    static func sessionDirectory() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("GPConnect", isDirectory: true)
+    }
+    static func markerURL() -> URL { sessionDirectory().appendingPathComponent("cli-session.json") }
+
+    /// A CLI killed with SIGKILL leaves its marker behind, so the pid must be probed rather
+    /// than trusted; signal 0 only checks for existence and delivers nothing.
+    static func read() -> CLISessionInfo? {
+        guard let data = try? Data(contentsOf: markerURL()),
+              let session = try? JSONDecoder().decode(CLISessionInfo.self, from: data) else {
+            return nil
+        }
+        guard kill(session.pid, 0) == 0 || errno == EPERM else {
+            try? FileManager.default.removeItem(at: markerURL())
+            return nil
+        }
+        return session
+    }
+
+    func requestStop() {
+        let stopFile = Self.sessionDirectory().appendingPathComponent("cli-stop-\(pid)")
+        try? Data().write(to: stopFile)
+    }
 }

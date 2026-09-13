@@ -31,7 +31,11 @@ struct MenuBarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(vpnManager.statusText)
                     .font(.headline)
-                if vpnManager.status == .connected {
+                if let session = vpnManager.externalCLISession, vpnManager.isExternalCLIConnected {
+                    Text("\(session.gateway) — started by gpconnect (pid \(session.pid))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if vpnManager.status == .connected {
                     Text(vpnManager.config.gateway)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -42,6 +46,7 @@ struct MenuBarView: View {
     }
 
     private var statusColor: Color {
+        if vpnManager.isExternalCLIConnected { return .green }
         switch vpnManager.status {
         case .connected: return .green
         case .connecting, .authenticating, .disconnecting: return .orange
@@ -51,6 +56,20 @@ struct MenuBarView: View {
     }
 
     private var connectionButton: some View {
+        Group {
+            if vpnManager.isExternalCLIConnected {
+                Button("Disconnect CLI Session") {
+                    vpnManager.disconnectExternalCLISession()
+                }
+                .buttonStyle(.bordered)
+            } else {
+                ownConnectionButton
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var ownConnectionButton: some View {
         Group {
             switch vpnManager.status {
             case .disconnected, .error:

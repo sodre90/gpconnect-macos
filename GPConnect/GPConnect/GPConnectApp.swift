@@ -49,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         CLIServer.shared.start(vpnManager: vpnManager)
+        vpnManager.startCLISessionMonitor()
 
         NotificationManager.shared.requestAuthorization()
         NotificationManager.shared.onNotificationTapped = { [weak self] in
@@ -93,7 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = statusImage()
         }
 
-        if vpnManager.status == .connected {
+        if vpnManager.status == .connected || vpnManager.isExternalCLIConnected {
             startDurationTimer()
         } else {
             stopDurationTimer()
@@ -129,7 +130,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateDurationLabel() {
-        guard let since = vpnManager.connectedSince else {
+        let externalStart = vpnManager.externalCLISession.map { Date(timeIntervalSince1970: $0.startedAtEpoch) }
+        guard let since = vpnManager.connectedSince ?? (vpnManager.isExternalCLIConnected ? externalStart : nil) else {
             statusItem.button?.title = ""
             return
         }

@@ -5,6 +5,7 @@ private let helperSocketPath = "/var/run/openconnect-helper.sock"
 
 private var daemonFD: Int32 = -1
 private var gotSIGINT = false
+private var stopRequested = false
 
 private func handleSIGINT(_ signal: Int32) {
     gotSIGINT = true
@@ -58,6 +59,52 @@ func readHiddenLine(prompt: String) throws -> String {
 private func appSocketPath() -> String {
     let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
     return appSupport.appendingPathComponent("GPConnect/cli.sock").path
+}
+
+private func cliSessionDir() -> URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        .appendingPathComponent("GPConnect", isDirectory: true)
+}
+private func sessionMarkerURL() -> URL { cliSessionDir().appendingPathComponent("cli-session.json") }
+private func stopFileURL(pid: Int32) -> URL { cliSessionDir().appendingPathComponent("cli-stop-\(pid)") }
+
+// The menu bar app reads this to show the shield as "connected via gpconnect CLI".
+func writeCLISessionMarker(user: String, cookieName: String, gateway: String, vpnSlice: String) {
+    let marker: [String: Any] = [
+        "pid": Int(getpid()),
+        "user": user,
+        "cookieName": cookieName,
+        "gateway": gateway,
+        "vpnSlice": vpnSlice,
+        "startedAtEpoch": Date().timeIntervalSince1970,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: marker, options: [.prettyPrinted, .sortedKeys]) else { return }
+    try? FileManager.default.createDirectory(at: cliSessionDir(), withIntermediateDirectories: true)
+    try? data.write(to: sessionMarkerURL())
+}
+
+func clearCLISession() {
+    try? FileManager.default.removeItem(at: sessionMarkerURL())
+    try? FileManager.default.removeItem(at: stopFileURL(pid: getpid()))
+}
+
+// The app cannot signal the root-owned openconnect directly, so it drops a per-pid stop
+// file; watching for it here and reusing the shutdown(daemonFD) path gives Ctrl+C parity.
+func startStopWatcher() {
+    let path = stopFileURL(pid: getpid()).path
+    let thread = Thread {
+        while !stopRequested {
+            if FileManager.default.fileExists(atPath: path) {
+                try? FileManager.default.removeItem(atPath: path)
+                stopRequested = true
+                if daemonFD >= 0 { shutdown(daemonFD, SHUT_RDWR) }
+                return
+            }
+            Thread.sleep(forTimeInterval: 1.0)
+        }
+    }
+    thread.name = "gpconnect-cli-stop-watcher"
+    thread.start()
 }
 
 /// Ask the running GPConnect menu bar app to perform the interactive SAML login
@@ -212,6 +259,8 @@ func runConnect(args: [String]) async throws {
         }
     }
     print("Tunnel starting — streaming openconnect output, Ctrl+C to disconnect.")
+    writeCLISessionMarker(user: result.username, cookieName: result.cookieName, gateway: config.gateway, vpnSlice: sliceArg)
+    startStopWatcher()
 
     let out = FileHandle.standardOutput
     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -225,6 +274,11 @@ func runConnect(args: [String]) async throws {
         break
     }
     close(fd)
+    clearCLISession()
+    if stopRequested {
+        print("Disconnected (requested from the GPConnect menu bar).")
+        exit(0)
+    }
     print(gotSIGINT ? "Disconnected." : "openconnect exited.")
     exit(gotSIGINT ? 0 : 2)
 }
