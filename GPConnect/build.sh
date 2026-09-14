@@ -13,6 +13,28 @@ RESOURCES="$CONTENTS/Resources"
 
 echo "==> Building $APP_NAME.app..."
 
+# SDK selection. macOS 27's SDK redeclares SwiftUI's @State (and friends) as macros
+# backed by libSwiftUIMacros.dylib, a plugin that ships only inside Xcode. This project
+# builds with Command Line Tools only (see CLAUDE.md), where that plugin is absent and
+# every @State fails to expand. When that is the case, fall back to the newest installed
+# SDK that still declares them as plain property wrappers.
+swiftui_state_is_macro() {
+    local iface="$1/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/arm64e-apple-macos.swiftinterface"
+    [ -f "$iface" ] && grep -q 'public macro State()' "$iface"
+}
+
+SDK_PATH="$(xcrun --show-sdk-path)"
+PLUGIN_DIR="$(dirname "$(dirname "$(xcrun -f swiftc)")")/lib/swift/host/plugins"
+if swiftui_state_is_macro "$SDK_PATH" && [ ! -f "$PLUGIN_DIR/libSwiftUIMacros.dylib" ]; then
+    for candidate in $(ls -d "$(dirname "$SDK_PATH")"/MacOSX*.sdk 2>/dev/null | sort -rV); do
+        if ! swiftui_state_is_macro "$candidate"; then
+            echo "==> $(basename "$SDK_PATH") needs the Xcode-only libSwiftUIMacros.dylib; building against $(basename "$candidate")"
+            SDK_PATH="$candidate"
+            break
+        fi
+    done
+fi
+
 # Gather all swift sources for the app
 SOURCES=$(find GPConnect -name '*.swift' -type f)
 
@@ -24,7 +46,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 swiftc \
     -O \
     -target arm64-apple-macosx14.0 \
-    -sdk "$(xcrun --show-sdk-path)" \
+    -sdk "$SDK_PATH" \
     -framework SwiftUI \
     -framework WebKit \
     -framework AppKit \
