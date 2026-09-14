@@ -18,10 +18,8 @@ class WindowManager: NSObject, ObservableObject, NSWindowDelegate {
             return
         }
 
-        // The IdP page polls JavaScript while waiting for Okta Verify approval. When the
-        // window is backgrounded, an accessory-policy (menu-bar) app otherwise gets App-Napped
-        // and that polling stalls until the user re-foregrounds the window; this token keeps
-        // the process awake for the duration of the login.
+        // Keeps the process off App Nap and out of idle sleep while the user is away at
+        // their phone; page-level throttling is handled separately, below.
         endSAMLLoginActivity()
         samlLoginActivity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .latencyCritical],
@@ -42,9 +40,22 @@ class WindowManager: NSObject, ObservableObject, NSWindowDelegate {
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
+        keepLoginPageRunningWhileUnattended(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.samlWindow = window
+    }
+
+    /// The IdP page polls JavaScript while waiting for Okta Verify approval, and WebKit
+    /// throttles that polling whenever AppKit reports the window as occluded — so a login
+    /// window covered by another window stalls until it is re-foregrounded. Process-level
+    /// `beginActivity` does not prevent this; only staying visible does. Floating above other
+    /// windows (including full-screen Spaces) keeps the page running while the user looks
+    /// away to approve the push on their phone. The window is deliberately not miniaturizable
+    /// for the same reason.
+    private func keepLoginPageRunningWhileUnattended(_ window: NSWindow) {
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     }
 
     func closeSAMLAuth() {

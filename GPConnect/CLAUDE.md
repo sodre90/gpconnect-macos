@@ -45,6 +45,12 @@ Several standard SwiftUI menu-bar-app patterns were tried and abandoned during d
 
 Do not trust `openconnect`'s stdout text as the sole signal that the tunnel is up — the expected strings (`"Connected as"`, `"ESP tunnel connected"`) don't reliably appear even when the tunnel is genuinely established (confirmed by inspecting `/var/log/openconnect-helper.log` and `ifconfig` while a connection that was "stuck" on Connecting had a fully-functional `utun` interface with routes). `VPNManager.startTunnelPolling()` treats a new `utun*` interface with an IPv4 address (via `Services/NetworkMonitor.swift`'s `activeUtunInterfacesWithIPv4()`, using `getifaddrs`) appearing after connection start as the authoritative "connected" signal, with log-text matching only as a faster secondary path (`markConnected()` is idempotent and guarded on `status == .connecting`).
 
+## The SAML login window floats on purpose
+
+`WindowManager.openSAMLAuth` sets `level = .floating` and `[.canJoinAllSpaces, .fullScreenAuxiliary]`, and the window is deliberately **not** `.miniaturizable`. This is load-bearing, not a style choice: WebKit throttles a page's JavaScript timers whenever AppKit reports its window as occluded, so an ordinary login window that the user covers (or minimizes, or leaves behind on another Space) stops polling Okta for push approval — the flow appears to hang until the window is re-foregrounded, which is exactly the bug users hit while waiting on their phone.
+
+A `ProcessInfo.beginActivity(.userInitiated, .latencyCritical)` token is held for the window's lifetime too, but that only prevents *process-level* App Nap and idle sleep; it does **not** prevent per-page throttling, and shipping it alone did not fix the stall. Staying visible is what fixes it. (The CLI's `SAMLWebView` gets the same effect differently: a window positioned far off-screen is never reported occluded, which is why its hidden login runs unthrottled.)
+
 ## Actor isolation
 
 - `VPNManager` and `AppDelegate` are both `@MainActor`.
