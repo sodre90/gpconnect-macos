@@ -68,6 +68,18 @@ private func cliSessionDir() -> URL {
 private func sessionMarkerURL() -> URL { cliSessionDir().appendingPathComponent("cli-session.json") }
 private func stopFileURL(pid: Int32) -> URL { cliSessionDir().appendingPathComponent("cli-stop-\(pid)") }
 
+/// The `-s` argument for openconnect; `nil` when there is nothing to slice.
+/// `--domains-vpn-dns` makes vpn-slice write /etc/resolver entries for these
+/// domains pointing at the gateway's DNS servers, and delete them at disconnect.
+private func makeSliceScript(routes: [String], domains: [String]) -> String? {
+    guard !routes.isEmpty || !domains.isEmpty else { return nil }
+    var parts = ["vpn-slice"] + routes
+    if !domains.isEmpty {
+        parts.append(contentsOf: ["--domains-vpn-dns", domains.joined(separator: ",")])
+    }
+    return parts.joined(separator: " ")
+}
+
 // The menu bar app reads this to show the shield as "connected via gpconnect CLI".
 func writeCLISessionMarker(user: String, cookieName: String, gateway: String, vpnSlice: String) {
     let marker: [String: Any] = [
@@ -179,7 +191,8 @@ func runConnect(args: [String]) async throws {
         throw CLIError.message("no gateway configured — gpconnect config set --gateway <addr>")
     }
     let enabledRanges = config.ipRanges.filter(\.enabled).map(\.cidr)
-    let sliceArg = enabledRanges.joined(separator: " ")
+    let dnsDomains = config.vpnDnsDomains ?? []
+    let sliceScript = makeSliceScript(routes: enabledRanges, domains: dnsDomains)
 
     let mode = args.contains("--app") ? "app" : (args.contains("--http") ? "http" : "webview")
     let modeLabel = ["app": "GPConnect app handoff (--app)",
@@ -187,6 +200,9 @@ func runConnect(args: [String]) async throws {
                      "webview": "hidden background browser (default)"][mode]!
     print("Gateway:  \(config.gateway)")
     print("Split:    \(enabledRanges.isEmpty ? "no — full tunnel (0 enabled ranges)" : "\(enabledRanges.count) range(s) via vpn-slice")")
+    if !dnsDomains.isEmpty {
+        print("Split DNS: \(dnsDomains.joined(separator: ", ")) via the VPN's DNS servers")
+    }
     print("Login:    \(modeLabel)")
 
     if dryRun {
@@ -195,7 +211,7 @@ func runConnect(args: [String]) async throws {
         var planned = ["openconnect", "--protocol=gp", "--user=<after login>", "--os=mac-intel",
                        "--usergroup=gateway:<cookie-name>", "--useragent=\(config.userAgent)",
                        "--passwd-on-stdin", config.gateway]
-        if !sliceArg.isEmpty { planned += ["-s", "vpn-slice \(sliceArg)"] }
+        if let sliceScript { planned += ["-s", sliceScript] }
         print("Dry run — would exec:")
         print("  \(planned.joined(separator: " "))")
         return
@@ -240,8 +256,8 @@ func runConnect(args: [String]) async throws {
         "--passwd-on-stdin",
         config.gateway,
     ]
-    if !sliceArg.isEmpty {
-        openconnectArgs.append(contentsOf: ["-s", "vpn-slice \(sliceArg)"])
+    if let sliceScript {
+        openconnectArgs.append(contentsOf: ["-s", sliceScript])
     }
 
     let fd = try openHelperSocket()
@@ -259,7 +275,8 @@ func runConnect(args: [String]) async throws {
         }
     }
     print("Tunnel starting — streaming openconnect output, Ctrl+C to disconnect.")
-    writeCLISessionMarker(user: result.username, cookieName: result.cookieName, gateway: config.gateway, vpnSlice: sliceArg)
+    writeCLISessionMarker(user: result.username, cookieName: result.cookieName, gateway: config.gateway,
+                          vpnSlice: enabledRanges.joined(separator: " "))
     startStopWatcher()
 
     let out = FileHandle.standardOutput

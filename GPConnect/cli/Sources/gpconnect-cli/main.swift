@@ -3,6 +3,7 @@ import Foundation
 struct CLIConfig: Codable {
     var gateway: String
     var ipRanges: [CLIIPRange]
+    var vpnDnsDomains: [String]?
     var openconnectPath: String?
     var userAgent: String
     var autoFillCredentials: Bool?
@@ -16,9 +17,20 @@ struct CLIConfig: Codable {
 }
 
 struct CLIIPRange: Codable {
+    var id = UUID()
     var cidr: String
     var label: String
     var enabled: Bool
+}
+
+extension CLIIPRange {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        cidr = try container.decode(String.self, forKey: .cidr)
+        label = try container.decode(String.self, forKey: .label)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+    }
 }
 
 func configURL() -> URL {
@@ -57,6 +69,9 @@ func printUsage() {
         ranges remove   Remove an IP range (--cidr <cidr>)
         ranges enable   Enable a range (--cidr <cidr>)
         ranges disable  Disable a range (--cidr <cidr>)
+        dns             List split-DNS domains (resolved via the VPN's DNS)
+        dns add         Add a domain (--domain <domain>)
+        dns remove      Remove a domain (--domain <domain>)
         config          Show current configuration
         config set      Set a config value (--gateway <addr> | --user-agent <ua>)
         vpn-slice-args  Output the vpn-slice argument string
@@ -77,6 +92,7 @@ func showStatus() {
         print("Gateway: \(config.gateway)")
         let enabled = config.ipRanges.filter(\.enabled).count
         print("IP ranges: \(enabled)/\(config.ipRanges.count) enabled")
+        print("Split DNS: \((config.vpnDnsDomains ?? []).count) domain(s)")
     } else {
         print("Config: not found (run the GPConnect app once to create it)")
     }
@@ -137,6 +153,52 @@ func setRangeEnabled(cidr: String, enabled: Bool) {
     config.ipRanges[idx].enabled = enabled
     saveConfig(config)
     print("\(enabled ? "Enabled" : "Disabled") \(cidr)")
+}
+
+func showDNSDomains() {
+    guard let config = loadConfig() else {
+        fputs("Error: config not found at \(configURL().path)\n", stderr)
+        exit(1)
+    }
+    let domains = config.vpnDnsDomains ?? []
+    if domains.isEmpty {
+        print("No split-DNS domains configured")
+        return
+    }
+    for domain in domains { print(domain) }
+}
+
+func addDNSDomain(domain: String) {
+    guard var config = loadConfig() else {
+        fputs("Error: config not found\n", stderr)
+        exit(1)
+    }
+    var domains = config.vpnDnsDomains ?? []
+    if domains.contains(domain) {
+        fputs("Domain \(domain) already exists\n", stderr)
+        exit(1)
+    }
+    domains.append(domain)
+    config.vpnDnsDomains = domains
+    saveConfig(config)
+    print("Added \(domain)")
+}
+
+func removeDNSDomain(domain: String) {
+    guard var config = loadConfig() else {
+        fputs("Error: config not found\n", stderr)
+        exit(1)
+    }
+    var domains = config.vpnDnsDomains ?? []
+    let before = domains.count
+    domains.removeAll { $0 == domain }
+    if domains.count == before {
+        fputs("Domain \(domain) not found\n", stderr)
+        exit(1)
+    }
+    config.vpnDnsDomains = domains
+    saveConfig(config)
+    print("Removed \(domain)")
 }
 
 func showConfig() {
@@ -242,6 +304,27 @@ case "ranges":
         }
     } else {
         showRanges()
+    }
+case "dns":
+    if args.count > 1 {
+        switch args[1] {
+        case "add":
+            guard let domain = getArg(args, flag: "--domain") else {
+                fputs("Usage: gpconnect dns add --domain <domain>\n", stderr)
+                exit(1)
+            }
+            addDNSDomain(domain: domain)
+        case "remove":
+            guard let domain = getArg(args, flag: "--domain") else {
+                fputs("Usage: gpconnect dns remove --domain <domain>\n", stderr)
+                exit(1)
+            }
+            removeDNSDomain(domain: domain)
+        default:
+            showDNSDomains()
+        }
+    } else {
+        showDNSDomains()
     }
 case "config":
     if args.count > 1 && args[1] == "set" {

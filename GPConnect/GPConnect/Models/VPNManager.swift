@@ -99,8 +99,22 @@ class VPNManager: ObservableObject {
         config.ipRanges.filter(\.enabled)
     }
 
-    var vpnSliceArgs: String {
-        enabledRanges.map(\.cidr).joined(separator: " ")
+    var splitDNSDomains: [String] {
+        config.vpnDnsDomains ?? []
+    }
+
+    /// The `-s` argument for openconnect; `nil` when there is nothing to slice.
+    /// `--domains-vpn-dns` makes vpn-slice write /etc/resolver entries for these
+    /// domains pointing at the gateway's DNS servers, and delete them at disconnect.
+    var sliceScript: String? {
+        let routes = enabledRanges.map(\.cidr)
+        let domains = splitDNSDomains
+        guard !routes.isEmpty || !domains.isEmpty else { return nil }
+        var parts = ["vpn-slice"] + routes
+        if !domains.isEmpty {
+            parts.append(contentsOf: ["--domains-vpn-dns", domains.joined(separator: ",")])
+        }
+        return parts.joined(separator: " ")
     }
 
     /// Upper bound on any scheduled duration. Without it, a hand-edited config.json
@@ -109,8 +123,18 @@ class VPNManager: ObservableObject {
     static let maxScheduleMinutes = 10080  // one week
 
     init() {
-        self.config = VPNConfig.load()
+        do {
+            self.config = try VPNConfig.load()
+        } catch {
+            self.config = .defaultConfig
+            self.status = .error
+            self.errorMessage = "Could not read config.json: \(Self.readableDescription(of: error))"
+        }
         observeSystemWake()
+    }
+
+    private static func readableDescription(of error: Error) -> String {
+        (error as? DecodingError)?.readableDescription ?? error.localizedDescription
     }
 
     /// Task.sleep does not advance while the machine is asleep, so a timer armed before
@@ -231,7 +255,7 @@ class VPNManager: ObservableObject {
     }
 
     private func startOpenConnect(result: SAMLResult) {
-        let sliceArg = vpnSliceArgs
+        let script = sliceScript
         var args = [
             "--protocol=gp",
             "--user=\(result.username)",
@@ -242,8 +266,8 @@ class VPNManager: ObservableObject {
             config.gateway
         ]
 
-        if !sliceArg.isEmpty {
-            args.append(contentsOf: ["-s", "vpn-slice \(sliceArg)"])
+        if let script {
+            args.append(contentsOf: ["-s", script])
         }
 
         appendLog("Connecting to \(config.gateway)...")

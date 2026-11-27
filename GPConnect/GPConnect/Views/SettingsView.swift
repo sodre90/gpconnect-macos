@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var autoDisconnectMinutes = 240
     @State private var connectedReminderEnabled = false
     @State private var connectedReminderMinutes = 240
+    @State private var vpnDnsDomainsText = ""
 
     var body: some View {
         Form {
@@ -30,6 +31,18 @@ struct SettingsView: View {
             Section("Advanced") {
                 TextField("User-Agent", text: $userAgent)
                     .onSubmit { save() }
+            }
+
+            Section("Split DNS Domains") {
+                Text("Domains resolved through the VPN's DNS servers. While the tunnel is up, vpn-slice writes /etc/resolver entries for them and removes them at disconnect.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextEditor(text: $vpnDnsDomainsText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 60)
+                Text("One domain per line, or comma separated.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
 
             Section("Login Autofill") {
@@ -140,6 +153,7 @@ struct SettingsView: View {
             autoDisconnectMinutes = vpnManager.config.autoDisconnectMinutes ?? 240
             connectedReminderEnabled = vpnManager.config.connectedReminderEnabled ?? false
             connectedReminderMinutes = vpnManager.config.connectedReminderMinutes ?? 240
+            vpnDnsDomainsText = (vpnManager.config.vpnDnsDomains ?? []).joined(separator: "\n")
         }
         .task {
             notificationsDenied = await NotificationManager.shared.authorizationDenied()
@@ -179,11 +193,25 @@ struct SettingsView: View {
         vpnManager.config.autoDisconnectMinutes = clampMinutes(autoDisconnectMinutes)
         vpnManager.config.connectedReminderEnabled = connectedReminderEnabled
         vpnManager.config.connectedReminderMinutes = clampMinutes(connectedReminderMinutes)
+        vpnManager.config.vpnDnsDomains = parseDomains(vpnDnsDomainsText)
         if autoFillCredentials && !savedPassword.isEmpty {
             CredentialStore.savePassword(savedPassword, account: gateway)
         } else {
             CredentialStore.deletePassword(account: gateway)
         }
         vpnManager.saveConfig()
+    }
+
+    private func parseDomains(_ text: String) -> [String] {
+        let separators = CharacterSet.newlines.union(CharacterSet(charactersIn: ","))
+        var seen = Set<String>()
+        var domains: [String] = []
+        for piece in text.components(separatedBy: separators) {
+            let domain = piece.trimmingCharacters(in: .whitespaces)
+            if !domain.isEmpty && seen.insert(domain).inserted {
+                domains.append(domain)
+            }
+        }
+        return domains
     }
 }

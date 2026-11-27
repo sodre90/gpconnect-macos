@@ -73,6 +73,8 @@ Features
   the login page, so only MFA (e.g. Okta Verify) needs manual interaction each time
 - Connection log viewer (`Logs...`) for troubleshooting without digging through files on disk
 - Editable list of split-tunnel IP ranges (add/remove/enable/disable/import), stored in a JSON config file
+- Optional split DNS: domains resolved through the VPN's DNS servers, written as `/etc/resolver` entries by
+  `vpn-slice` on connect and removed on disconnect — no hand-written files needed
 
 GPConnect requirements
 ----------------------
@@ -136,8 +138,8 @@ turns into a checkmark shield once the tunnel is up. **Disconnect** tears it dow
 a window to manage the split-tunnel IP ranges. **Logs...** opens a window with the connection log (copy or
 clear it from there). **Settings...** lets you change the gateway address and User-Agent string, enable
 credential autofill (username/password, stored in the macOS Keychain — MFA is still required every time),
-and also has an **Install Helper** button if the privileged helper daemon isn't running (you'll usually be
-prompted for this automatically on first launch instead).
+edit the split DNS domains (one per line), and also has an **Install Helper** button if the privileged
+helper daemon isn't running (you'll usually be prompted for this automatically on first launch instead).
 
 Configuration
 -------------
@@ -148,9 +150,15 @@ The app stores its settings in:
 ~/Library/Application Support/GPConnect/config.json
 ```
 
-It's plain JSON (gateway address, User-Agent, autofill toggle/username, and a list of `{cidr, label, enabled}`
-IP ranges) — safe to edit by hand or via the app's "Edit Ranges..." window. The autofill password is not in
-this file — it's stored separately in the macOS Keychain.
+It's plain JSON (gateway address, User-Agent, autofill toggle/username, a list of `{cidr, label, enabled}`
+IP ranges, and `vpnDnsDomains`, the split DNS domain names) — safe to edit by hand or via the app's
+"Edit Ranges..." / Settings windows. The autofill password is not in this file — it's stored separately in
+the macOS Keychain.
+
+When `vpnDnsDomains` is non-empty, `openconnect` runs vpn-slice with `--domains-vpn-dns <domains>`: while
+the tunnel is up, vpn-slice writes `/etc/resolver/<domain>` files pointing at the DNS servers the gateway
+pushed, and deletes them when the tunnel closes. Nothing is written by hand. If the Mac restarts or crashes
+while connected, vpn-slice never gets to clean up, so old `/etc/resolver` files can stay behind.
 
 Known limitations
 -----------------

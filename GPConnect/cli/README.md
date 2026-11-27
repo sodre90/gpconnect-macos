@@ -47,6 +47,9 @@ gpconnect ranges add --cidr 10.5.0.0/16 --label "New"
 gpconnect ranges remove --cidr 10.5.0.0/16
 gpconnect ranges enable --cidr 10.5.0.0/16
 gpconnect ranges disable --cidr 10.5.0.0/16
+gpconnect dns                                         # list split-DNS domains
+gpconnect dns add --domain example.com
+gpconnect dns remove --domain example.com
 gpconnect vpn-slice-args                              # print enabled ranges as a vpn-slice argument string
 gpconnect config                                      # show gateway / user-agent
 gpconnect config set --gateway vpn.company.com
@@ -74,6 +77,10 @@ gpconnect config set --gateway vpn.company.com
   would raise a GUI consent dialog — invisible over SSH.
 - **Split tunnel**: the tunnel slices are exactly the enabled IP ranges in the shared config
   (`gpconnect ranges` to toggle them). With zero enabled ranges, `connect` brings up a full tunnel.
+- **Split DNS**: the domains in `vpnDnsDomains` (`gpconnect dns` to edit them) are passed to vpn-slice
+  as `--domains-vpn-dns`. While the tunnel is up, vpn-slice writes `/etc/resolver/<domain>` pointing
+  at the DNS servers the gateway pushed, and deletes those files at disconnect. Domains alone are enough
+  to run vpn-slice: with no enabled ranges it starts with no routes and only the split DNS entries.
 - **Attach mode**: openconnect output streams to the terminal; Ctrl+C shuts the socket down, which is
   the daemon's cue to terminate openconnect (verified in `../../helper/openconnect_helper`).
 - **Shown in the menu bar**: while the tunnel is up, `connect` writes `cli-session.json` beside the
@@ -96,5 +103,5 @@ The CLI and the app read and write the same file:
 `CLIConfig` in `Sources/gpconnect-cli/main.swift` and `VPNConfig` in `../GPConnect/Models/VPNConfig.swift`
 are independent `Codable` structs describing that one file, so **they must be kept in sync**. `saveConfig`
 re-encodes the whole file, which means a `gpconnect` binary built before a new key was added to the app will
-silently drop that key from the user's config on any `config set` or `ranges` edit. If you add a field to
+silently drop that key from the user's config on any `config set`, `ranges` or `dns` edit. If you add a field to
 `VPNConfig`, add it to `CLIConfig` too, and rebuild/reinstall the CLI alongside the app.

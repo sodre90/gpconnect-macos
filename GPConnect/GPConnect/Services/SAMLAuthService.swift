@@ -18,6 +18,9 @@ class SAMLAuthService {
     }
 
     func fetchPrelogin() async throws -> PreloginResponse {
+        guard !gateway.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw GPConnectError.authFailed("No gateway configured. Set it in Settings.")
+        }
         let endpoint = "https://\(gateway)/ssl-vpn/prelogin.esp"
         guard let url = URL(string: endpoint) else {
             throw GPConnectError.authFailed("Invalid gateway URL")
